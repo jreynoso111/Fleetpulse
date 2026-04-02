@@ -3,6 +3,7 @@ import AppLayout from './layout/AppLayout'
 import AutomationsPage from './pages/AutomationsPage'
 import BoardsPage from './pages/BoardsPage'
 import DashboardPage from './pages/DashboardPage'
+import LandingPage from './pages/LandingPage'
 import SettingsPage from './pages/SettingsPage'
 
 function App() {
