@@ -4,9 +4,91 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FleetOS UI</title>
+    <style>
+      :root {
+        color: #0f172a;
+        background: #f8fafc;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #f8fafc;
+      }
+      .landing-wrap {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .landing-card {
+        width: 100%;
+        max-width: 860px;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 18px;
+        padding: 2rem;
+        box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+      }
+      .eyebrow {
+        margin: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-weight: 700;
+        font-size: 0.75rem;
+        color: #2563eb;
+      }
+      h1 {
+        margin: 0.9rem 0 0;
+        font-size: clamp(1.9rem, 4vw, 2.6rem);
+      }
+      .desc {
+        margin-top: 0.9rem;
+        max-width: 68ch;
+        color: #475569;
+        line-height: 1.55;
+      }
+      .actions {
+        margin-top: 1.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+      .btn {
+        text-decoration: none;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.94rem;
+        padding: 0.7rem 1rem;
+      }
+      .btn-primary {
+        background: #0f172a;
+        color: #fff;
+      }
+      .btn-secondary {
+        border: 1px solid #cbd5e1;
+        color: #334155;
+        background: #fff;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <section id="marketing-landing" class="landing-wrap">
+      <article class="landing-card">
+        <p class="eyebrow">FleetOS</p>
+        <h1>Gestiona tu operación en un solo lugar</h1>
+        <p class="desc">
+          Esta landing vive directamente en <code>index.html</code> para asegurar que el proyecto siempre sea accesible.
+          Desde aquí puedes entrar al panel principal y comenzar a operar.
+        </p>
+
+        <div class="actions">
+          <a class="btn btn-primary" href="/app/dashboard">Entrar al panel</a>
+          <a class="btn btn-secondary" href="/app/boards">Ver tableros</a>
+        </div>
+      </article>
+    </section>
+
+    <div id="root" hidden></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
