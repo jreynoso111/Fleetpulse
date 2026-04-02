@@ -2,10 +2,10 @@ import { Bot, LayoutDashboard, PanelsTopLeft, Settings } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 const navItems = [
-  { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'Boards', to: '/boards', icon: PanelsTopLeft },
-  { label: 'Automations', to: '/automations', icon: Bot },
-  { label: 'Settings', to: '/settings', icon: Settings },
+  { label: 'Dashboard', to: '/app/dashboard', icon: LayoutDashboard },
+  { label: 'Boards', to: '/app/boards', icon: PanelsTopLeft },
+  { label: 'Automations', to: '/app/automations', icon: Bot },
+  { label: 'Settings', to: '/app/settings', icon: Settings },
 ]
 
 function Sidebar({ collapsed }) {
