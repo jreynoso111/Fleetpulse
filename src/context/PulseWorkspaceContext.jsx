@@ -388,6 +388,7 @@ function boardToRecord(board, workspaceId) {
 export function PulseWorkspaceProvider({ children }) {
   const [authReady, setAuthReady] = useState(false)
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
+  const [workspaceError, setWorkspaceError] = useState('')
   const [session, setSession] = useState(null)
   const [workspace, setWorkspace] = useState(clone(initialWorkspace.workspace))
   const [currentUserProfile, setCurrentUserProfile] = useState(null)
@@ -528,6 +529,7 @@ export function PulseWorkspaceProvider({ children }) {
 
     if (!session?.user) {
       setWorkspaceLoading(false)
+      setWorkspaceError('')
       setCurrentUserProfile(null)
       setWorkspaceUsers([])
       setAllBoards([])
@@ -543,6 +545,7 @@ export function PulseWorkspaceProvider({ children }) {
 
     async function syncWorkspaceData() {
       setWorkspaceLoading(true)
+      setWorkspaceError('')
       await loadWorkspaceData()
       if (!active) return
       setWorkspaceLoading(false)
@@ -552,6 +555,7 @@ export function PulseWorkspaceProvider({ children }) {
       console.error('Failed to load Pulse workspace data.', error)
       if (!active) return
       setWorkspaceLoading(false)
+      setWorkspaceError(error instanceof Error ? error.message : 'Unable to load workspace data.')
     })
 
     return () => {
@@ -680,6 +684,7 @@ export function PulseWorkspaceProvider({ children }) {
     () => ({
       authReady,
       workspaceLoading,
+      workspaceError,
       isAuthenticated: Boolean(session?.user),
       workspace,
       currentUser,
@@ -1041,6 +1046,7 @@ export function PulseWorkspaceProvider({ children }) {
       workspaceUsers,
       boardViewPreferences,
       loadWorkspaceData,
+      workspaceError,
     ],
   )
 

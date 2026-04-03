@@ -22,13 +22,30 @@ function PageFallback() {
   )
 }
 
+function WorkspaceErrorFallback({ message }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-500">
+      <div className="w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-6 text-center shadow-soft">
+        <h1 className="text-lg font-semibold text-slate-900">Workspace failed to load</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          {message || 'Pulse could not load your workspace session.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function App() {
-  const { authReady, currentUser, isAuthenticated, settings, workspaceLoading } = usePulseWorkspace()
+  const { authReady, currentUser, isAuthenticated, settings, workspaceError, workspaceLoading } = usePulseWorkspace()
   const homePage = settings.homePage || 'dashboard'
   const mustChangePassword = currentUser?.mustChangePassword === true
 
   if (!authReady || (isAuthenticated && workspaceLoading)) {
     return <PageFallback />
+  }
+
+  if (isAuthenticated && workspaceError) {
+    return <WorkspaceErrorFallback message={workspaceError} />
   }
 
   return (
