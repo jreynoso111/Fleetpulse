@@ -76,13 +76,13 @@ Deno.serve(async (req) => {
     const password = String(body?.password || '').trim()
     const targetUserId = String(body?.userId || '').trim()
 
-    if (['block', 'unblock'].includes(mode)) {
+    if (['block', 'unblock', 'delete'].includes(mode)) {
       if (!targetUserId) {
         return jsonResponse({ error: 'A target user is required.' }, 400)
       }
 
       if (targetUserId === callerUser.id) {
-        return jsonResponse({ error: 'You cannot block your own admin account.' }, 400)
+        return jsonResponse({ error: `You cannot ${mode} your own admin account.` }, 400)
       }
 
       const { data: targetProfile, error: targetProfileError } = await supabaseAdmin
@@ -93,6 +93,78 @@ Deno.serve(async (req) => {
 
       if (targetProfileError || !targetProfile || targetProfile.workspace_id !== callerProfile.workspace_id) {
         return jsonResponse({ error: 'User not found in this workspace.' }, 404)
+      }
+
+      if (mode === 'delete') {
+        const { data: ownedBoards, error: ownedBoardsError } = await supabaseAdmin
+          .from('pulse_boards')
+          .select('id, name')
+          .eq('workspace_id', callerProfile.workspace_id)
+          .eq('owner_user_id', targetUserId)
+          .is('delete_after', null)
+
+        if (ownedBoardsError) {
+          return jsonResponse({ error: ownedBoardsError.message }, 400)
+        }
+
+        if (ownedBoards && ownedBoards.length > 0) {
+          return jsonResponse({ error: 'Delete or transfer the user-owned boards before deleting this profile.' }, 400)
+        }
+
+        const { data: sharedBoards, error: sharedBoardsError } = await supabaseAdmin
+          .from('pulse_boards')
+          .select('id, shared_with, deleted_for')
+          .eq('workspace_id', callerProfile.workspace_id)
+
+        if (sharedBoardsError) {
+          return jsonResponse({ error: sharedBoardsError.message }, 400)
+        }
+
+        for (const board of sharedBoards ?? []) {
+          const nextSharedWith = (board.shared_with || []).filter((entry: Record<string, unknown>) => entry.userId !== targetUserId)
+          const nextDeletedFor = (board.deleted_for || []).filter((entry: Record<string, unknown>) => entry.userId !== targetUserId)
+
+          if (nextSharedWith.length !== (board.shared_with || []).length || nextDeletedFor.length !== (board.deleted_for || []).length) {
+            const { error: boardUpdateError } = await supabaseAdmin
+              .from('pulse_boards')
+              .update({
+                shared_with: nextSharedWith,
+                deleted_for: nextDeletedFor,
+              })
+              .eq('id', board.id)
+
+            if (boardUpdateError) {
+              return jsonResponse({ error: boardUpdateError.message }, 400)
+            }
+          }
+        }
+
+        const cleanupOps = await Promise.all([
+          supabaseAdmin.from('pulse_notifications').delete().eq('user_id', targetUserId),
+          supabaseAdmin.from('pulse_board_view_preferences').delete().eq('user_id', targetUserId),
+          supabaseAdmin.from('pulse_user_preferences').delete().eq('user_id', targetUserId),
+          supabaseAdmin.from('pulse_profiles').delete().eq('id', targetUserId),
+        ])
+
+        for (const operation of cleanupOps) {
+          if (operation.error) {
+            return jsonResponse({ error: operation.error.message }, 400)
+          }
+        }
+
+        const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(targetUserId)
+
+        if (authDeleteError) {
+          return jsonResponse({ error: authDeleteError.message }, 400)
+        }
+
+        return jsonResponse({
+          success: true,
+          mode,
+          email: targetProfile.email,
+          userId: targetUserId,
+          deleted: true,
+        })
       }
 
       const shouldDisable = mode === 'block'

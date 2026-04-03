@@ -3,17 +3,21 @@ import { useEffect, useState } from 'react'
 import { usePulseWorkspace } from '../context/PulseWorkspaceContext'
 
 const appearanceThemes = [
-  { id: 'blue', label: 'Blue' },
-  { id: 'amber', label: 'Amber' },
-  { id: 'emerald', label: 'Emerald' },
-  { id: 'rose', label: 'Rose' },
-  { id: 'indigo', label: 'Indigo' },
-  { id: 'teal', label: 'Teal' },
-  { id: 'coral', label: 'Coral' },
-  { id: 'violet', label: 'Violet' },
-  { id: 'lime', label: 'Lime' },
-  { id: 'copper', label: 'Copper' },
-  { id: 'slate', label: 'Slate' },
+  { id: 'blue', label: 'Blue', swatch: '#2563eb' },
+  { id: 'amber', label: 'Amber', swatch: '#d97706' },
+  { id: 'emerald', label: 'Emerald', swatch: '#059669' },
+  { id: 'rose', label: 'Rose', swatch: '#e11d48' },
+  { id: 'indigo', label: 'Indigo', swatch: '#4f46e5' },
+  { id: 'teal', label: 'Teal', swatch: '#0f766e' },
+  { id: 'coral', label: 'Coral', swatch: '#ea580c' },
+  { id: 'violet', label: 'Violet', swatch: '#7c3aed' },
+  { id: 'lime', label: 'Lime', swatch: '#65a30d' },
+  { id: 'copper', label: 'Copper', swatch: '#b45309' },
+  { id: 'slate', label: 'Slate', swatch: '#334155' },
+  { id: 'blue-inverted', label: 'Blue Inverted', swatch: 'linear-gradient(135deg, #1d4ed8 0%, #bfdbfe 100%)' },
+  { id: 'emerald-inverted', label: 'Emerald Inverted', swatch: 'linear-gradient(135deg, #047857 0%, #a7f3d0 100%)' },
+  { id: 'rose-inverted', label: 'Rose Inverted', swatch: 'linear-gradient(135deg, #be123c 0%, #fecdd3 100%)' },
+  { id: 'slate-inverted', label: 'Slate Inverted', swatch: 'linear-gradient(135deg, #1f2937 0%, #cbd5e1 100%)' },
 ]
 
 function SettingsPage() {
@@ -144,6 +148,25 @@ function SettingsPage() {
     }
   }
 
+  async function handleUserDelete(user) {
+    const confirmed = window.confirm(`Delete ${user.email}? This will remove the user from Pulse permanently.`)
+    if (!confirmed) return
+
+    setAdminError('')
+    setAdminMessage('')
+
+    try {
+      const result = await manageWorkspaceUser({
+        mode: 'delete',
+        userId: user.id,
+      })
+
+      setAdminMessage(`User ${result.email} was deleted successfully.`)
+    } catch (error) {
+      setAdminError(error.message)
+    }
+  }
+
   return (
     <section className="space-y-4">
       <div className="space-y-1">
@@ -232,30 +255,7 @@ function SettingsPage() {
               >
                 <span
                   className="h-4 w-4 rounded-full border border-black/10"
-                  style={{
-                    background:
-                      theme.id === 'blue'
-                        ? '#2563eb'
-                        : theme.id === 'amber'
-                          ? '#d97706'
-                          : theme.id === 'emerald'
-                            ? '#059669'
-                            : theme.id === 'rose'
-                              ? '#e11d48'
-                              : theme.id === 'indigo'
-                                ? '#4f46e5'
-                                : theme.id === 'teal'
-                                  ? '#0f766e'
-                                  : theme.id === 'coral'
-                                    ? '#ea580c'
-                                    : theme.id === 'violet'
-                                      ? '#7c3aed'
-                                      : theme.id === 'lime'
-                                        ? '#65a30d'
-                                        : theme.id === 'copper'
-                                          ? '#b45309'
-                                          : '#334155',
-                  }}
+                  style={{ background: theme.swatch }}
                 />
                 <span>{theme.label}</span>
               </button>
@@ -398,19 +398,28 @@ function SettingsPage() {
                         {user.disabled ? 'Blocked' : 'Active'}
                       </span>
                     </span>
-                    <span className="text-right">
+                    <span className="flex justify-end gap-2">
                       {user.id !== currentUser?.id && (
-                        <button
-                          type="button"
-                          onClick={() => handleUserStatusToggle(user, user.disabled ? 'unblock' : 'block')}
-                          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                            user.disabled
-                              ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                              : 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                          }`}
-                        >
-                          {user.disabled ? 'Unblock' : 'Block'}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleUserStatusToggle(user, user.disabled ? 'unblock' : 'block')}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                              user.disabled
+                                ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                : 'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                            }`}
+                          >
+                            {user.disabled ? 'Unblock' : 'Block'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUserDelete(user)}
+                            className="rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                          >
+                            Delete
+                          </button>
+                        </>
                       )}
                     </span>
                   </div>

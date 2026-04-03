@@ -61,7 +61,7 @@ function Sidebar({ collapsed, mobileOpen = false, onCloseMobile }) {
   return (
     <>
       <aside
-        className={`hidden border-r border-slate-200 bg-white transition-all duration-200 md:flex md:flex-col ${
+        className={`hidden border-r border-slate-200 bg-white transition-all duration-200 md:sticky md:top-0 md:flex md:h-screen md:self-start md:flex-col md:overflow-y-auto ${
           collapsed ? 'w-[84px]' : 'w-64'
         }`}
       >
