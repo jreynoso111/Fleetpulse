@@ -6,6 +6,7 @@ const AppLayout = lazy(() => import('./layout/AppLayout'))
 const AutomationsPage = lazy(() => import('./pages/AutomationsPage'))
 const BoardWorkspacePage = lazy(() => import('./pages/BoardWorkspacePage'))
 const BoardsPage = lazy(() => import('./pages/BoardsPage'))
+const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'))
 const DashboardDetailPage = lazy(() => import('./pages/DashboardDetailPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LandingPage = lazy(() => import('./pages/LandingPage'))
@@ -22,8 +23,9 @@ function PageFallback() {
 }
 
 function App() {
-  const { authReady, isAuthenticated, settings, workspaceLoading } = usePulseWorkspace()
+  const { authReady, currentUser, isAuthenticated, settings, workspaceLoading } = usePulseWorkspace()
   const homePage = settings.homePage || 'dashboard'
+  const mustChangePassword = currentUser?.mustChangePassword === true
 
   if (!authReady || (isAuthenticated && workspaceLoading)) {
     return <PageFallback />
@@ -33,7 +35,16 @@ function App() {
     <Suspense fallback={<PageFallback />}>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/app" element={isAuthenticated ? <AppLayout /> : <Navigate to="/" replace />}>
+        <Route
+          path="/change-password"
+          element={isAuthenticated ? <ChangePasswordPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/app"
+          element={
+            isAuthenticated ? (mustChangePassword ? <Navigate to="/change-password" replace /> : <AppLayout />) : <Navigate to="/" replace />
+          }
+        >
           <Route index element={<Navigate to={homePage} replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="dashboard/:metricKey" element={<DashboardDetailPage />} />
@@ -43,7 +54,10 @@ function App() {
           <Route path="settings" element={<SettingsPage />} />
         </Route>
 
-        <Route path="*" element={<Navigate to={isAuthenticated ? `/app/${homePage}` : '/'} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={isAuthenticated ? (mustChangePassword ? '/change-password' : `/app/${homePage}`) : '/'} replace />}
+        />
       </Routes>
     </Suspense>
   )

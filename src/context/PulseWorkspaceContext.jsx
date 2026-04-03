@@ -500,6 +500,7 @@ export function PulseWorkspaceProvider({ children }) {
       name: profile.name,
       role: profile.role,
       disabled: profile.disabled === true,
+      mustChangePassword: profile.must_change_password === true,
       workspaceId: profile.workspace_id,
     })
     setSettings(normalizedSettings)
@@ -510,6 +511,7 @@ export function PulseWorkspaceProvider({ children }) {
         name: user.name,
         role: user.role,
         disabled: user.disabled === true,
+        mustChangePassword: user.must_change_password === true,
         workspaceId: user.workspace_id,
       })),
     )
@@ -701,6 +703,35 @@ export function PulseWorkspaceProvider({ children }) {
       async logout() {
         const { error } = await supabase.auth.signOut()
         if (error) throw new Error(error.message)
+      },
+      async changePassword(nextPassword) {
+        if (!currentUserId) throw new Error('No active user session.')
+        const trimmedPassword = String(nextPassword || '').trim()
+        if (trimmedPassword.length < 6) {
+          throw new Error('Password must be at least 6 characters.')
+        }
+
+        const { error: passwordError } = await supabase.auth.updateUser({
+          password: trimmedPassword,
+        })
+
+        if (passwordError) throw new Error(passwordError.message)
+
+        const { error: profileError } = await supabase
+          .from('pulse_profiles')
+          .update({ must_change_password: false })
+          .eq('id', currentUserId)
+
+        if (profileError) throw new Error(profileError.message)
+
+        setCurrentUserProfile((current) =>
+          current
+            ? {
+                ...current,
+                mustChangePassword: false,
+              }
+            : current,
+        )
       },
       async updateUserPreferences(updates) {
         if (!currentUserId) return

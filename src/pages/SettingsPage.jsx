@@ -45,7 +45,7 @@ function SettingsPage() {
       const result = await manageWorkspaceUser(payload)
       setAdminMessage(
         adminMode === 'create'
-          ? `User ${result.email} was created successfully.`
+          ? `User ${result.email} was created successfully and will be asked to change the temporary password on first login.`
           : `Invitation sent to ${result.email}.`,
       )
       setAdminForm({ name: '', email: '', role: 'member', password: '' })
@@ -109,77 +109,8 @@ function SettingsPage() {
         </article>
 
         <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Preferences</h2>
-          <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-            <label className="block space-y-1">
-              <span className="text-slate-500">Locale</span>
-              <input
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:ring"
-                value={settings.locale}
-                onChange={(event) => updateUserPreferences({ locale: event.target.value })}
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-slate-500">Home page after login</span>
-              <select
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:ring"
-                value={settings.homePage}
-                onChange={(event) => updateUserPreferences({ homePage: event.target.value })}
-              >
-                <option value="dashboard">Dashboard</option>
-                <option value="boards">Boards</option>
-                <option value="automations">Automations</option>
-              </select>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-slate-500">Default board view</span>
-              <select
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:ring"
-                value={settings.defaultBoardView}
-                onChange={(event) => updateUserPreferences({ defaultBoardView: event.target.value })}
-              >
-                <option value="table">Table</option>
-                <option value="kanban">Kanban</option>
-                <option value="gantt">Gantt</option>
-              </select>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-slate-500">Density</span>
-              <select
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:ring"
-                value={settings.density}
-                onChange={(event) => updateUserPreferences({ density: event.target.value })}
-              >
-                <option value="comfortable">Comfortable</option>
-                <option value="compact">Compact</option>
-              </select>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-slate-500">Dashboard refresh seconds</span>
-              <input
-                type="number"
-                min="10"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:ring"
-                value={settings.dashboardRefreshSeconds}
-                onChange={(event) =>
-                  updateUserPreferences({ dashboardRefreshSeconds: Number(event.target.value || 10) })
-                }
-              />
-            </label>
-            <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 md:self-end">
-              <span className="text-slate-500">Notifications</span>
-              <input
-                type="checkbox"
-                checked={settings.notificationsEnabled}
-                onChange={(event) => updateUserPreferences({ notificationsEnabled: event.target.checked })}
-              />
-            </label>
-          </div>
-        </article>
-
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft xl:col-span-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Appearance</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
             {appearanceThemes.map((theme) => (
               <button
                 key={theme.id}
@@ -295,14 +226,17 @@ function SettingsPage() {
               </label>
               {adminMode === 'create' ? (
                 <label className="space-y-1">
-                  <span className="text-slate-500">Password</span>
+                  <span className="text-slate-500">Temporary password</span>
                   <input
-                    type="text"
+                    type="password"
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 outline-none ring-sky-200 focus:ring"
                     value={adminForm.password}
                     onChange={(event) => setAdminForm((current) => ({ ...current, password: event.target.value }))}
                     placeholder="Temporary password"
                   />
+                  <p className="text-[11px] text-slate-500">
+                    The user will be required to change this password on first login.
+                  </p>
                 </label>
               ) : (
                 <div className="space-y-1">

@@ -5,13 +5,13 @@ import { usePulseWorkspace } from '../context/PulseWorkspaceContext'
 
 function LandingPage() {
   const navigate = useNavigate()
-  const { isAuthenticated, login } = usePulseWorkspace()
+  const { currentUser, isAuthenticated, login } = usePulseWorkspace()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
   if (isAuthenticated) {
-    return <Navigate to="/app" replace />
+    return <Navigate to={currentUser?.mustChangePassword ? '/change-password' : '/app'} replace />
   }
 
   async function handleSubmit(event) {

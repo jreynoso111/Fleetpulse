@@ -186,6 +186,7 @@ Deno.serve(async (req) => {
       name,
       role,
       disabled: false,
+      must_change_password: normalizedMode === 'create',
     })
 
     if (profileError) {
