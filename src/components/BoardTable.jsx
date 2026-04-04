@@ -1,11 +1,11 @@
-import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CheckCheck, ChevronDown, ChevronUp, FilterX, Pencil, Plus, Trash2 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { statusColors, statusOptions } from '../data/boardMock'
 
 const columnTypeOptions = ['text', 'number', 'currency', 'date', 'status', 'boolean', 'location', 'address', 'phone']
 const textSizeOptions = ['small', 'medium', 'large']
 const COLUMN_MIN_WIDTH = 72
-const COLUMN_MENU_WIDTH = 288
+const COLUMN_MENU_WIDTH = 272
 const VIEWPORT_MENU_PADDING = 12
 const COLUMN_MENU_MAX_HEIGHT = 420
 const statusToneClasses = [
@@ -172,6 +172,19 @@ function getStatusTone(value) {
 
 function getMapsUrl(value) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(String(value || ''))}`
+}
+
+function isMapsColumn(column) {
+  const normalizedKey = String(column?.key || '').toLowerCase()
+  const normalizedLabel = String(column?.label || '').toLowerCase()
+  return (
+    column?.type === 'location' ||
+    column?.type === 'address' ||
+    normalizedKey.includes('location') ||
+    normalizedKey.includes('address') ||
+    normalizedLabel.includes('location') ||
+    normalizedLabel.includes('address')
+  )
 }
 
 function formatColumnValue(value, type) {
@@ -355,6 +368,7 @@ function BoardTable({
   const [activeCell, setActiveCell] = useState(null)
   const [openColumnMenu, setOpenColumnMenu] = useState(null)
   const [columnMenuStyle, setColumnMenuStyle] = useState(null)
+  const [pendingColumnDelete, setPendingColumnDelete] = useState(null)
   const [showAddColumnForm, setShowAddColumnForm] = useState(false)
   const [newColumn, setNewColumn] = useState({ label: '', type: 'text' })
   const [filters, setFilters] = useState([])
@@ -514,6 +528,19 @@ function BoardTable({
     }
   }, [openColumnMenu])
 
+  useEffect(() => {
+    if (!pendingColumnDelete) return
+
+    function handleEscape(event) {
+      if (event.key === 'Escape') {
+        setPendingColumnDelete(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [pendingColumnDelete])
+
   const nextItemNumber = useMemo(() => boardRows.length + 1, [boardRows.length])
   const visibleColumns = useMemo(
     () => boardColumns.filter((column) => column.hidden !== true),
@@ -553,13 +580,16 @@ function BoardTable({
       boardColumns.reduce((accumulator, column) => {
         const optionMap = new Map()
         boardRows.forEach((row) => {
-          const option = getFilterOption(row[column.key], column.type)
+          const option = getFilterOption(row?.[column.key], column.type)
           if (!optionMap.has(option.token)) {
             optionMap.set(option.token, option)
           }
         })
         accumulator[column.key] = Array.from(optionMap.values()).sort((left, right) =>
-          left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' }),
+          String(left?.label || '').localeCompare(String(right?.label || ''), undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          }),
         )
         return accumulator
       }, {}),
@@ -969,10 +999,6 @@ function BoardTable({
   )
 
   const deleteColumn = useCallback((columnKey) => {
-    const targetColumn = boardColumns.find((column) => column.key === columnKey)
-    const shouldDelete = window.confirm(`Delete column "${targetColumn?.label || columnKey}"?`)
-    if (!shouldDelete) return
-
     const nextColumns = boardColumns.filter((column) => column.key !== columnKey)
     if (columnKey === groupByKey) {
       setGroupByKey('')
@@ -995,6 +1021,19 @@ function BoardTable({
     setFilters((currentFilters) => currentFilters.filter((filter) => filter.columnKey !== columnKey))
     setOpenColumnMenu(null)
   }, [boardColumns, groupByKey, kanbanGroupKey, persistViewConfig, pushBoardChange])
+
+  const requestColumnDelete = useCallback(
+    (columnKey) => {
+      const targetColumn = boardColumns.find((column) => column.key === columnKey)
+      setPendingColumnDelete({
+        key: columnKey,
+        label: targetColumn?.label || columnKey,
+      })
+      setOpenColumnMenu(null)
+      setColumnMenuStyle(null)
+    },
+    [boardColumns],
+  )
 
   const addStatusOption = useCallback(
     (columnKey) => {
@@ -1271,19 +1310,26 @@ function BoardTable({
   )
 
   const toggleColumnMenu = useCallback((event, menuKey) => {
+    const trigger = event.currentTarget
+    const rect = trigger instanceof Element ? trigger.getBoundingClientRect() : null
+
     setOpenColumnMenu((currentValue) => {
       if (currentValue === menuKey) {
         setColumnMenuStyle(null)
         return null
       }
 
-      const rect = event.currentTarget.getBoundingClientRect()
+      if (!rect) {
+        setColumnMenuStyle(null)
+        return menuKey
+      }
+
       const viewportWidth = window.innerWidth
       const viewportHeight = window.innerHeight
-      const left = Math.min(
-        Math.max(VIEWPORT_MENU_PADDING, rect.right - COLUMN_MENU_WIDTH),
-        viewportWidth - COLUMN_MENU_WIDTH - VIEWPORT_MENU_PADDING,
-      )
+      const maxLeft = Math.max(VIEWPORT_MENU_PADDING, viewportWidth - COLUMN_MENU_WIDTH - VIEWPORT_MENU_PADDING)
+      const fitsOnRight = rect.left + COLUMN_MENU_WIDTH <= viewportWidth - VIEWPORT_MENU_PADDING
+      const preferredLeft = fitsOnRight ? rect.left : rect.right - COLUMN_MENU_WIDTH
+      const left = Math.min(Math.max(VIEWPORT_MENU_PADDING, preferredLeft), maxLeft)
       const availableBelow = viewportHeight - rect.bottom - VIEWPORT_MENU_PADDING
       const availableAbove = rect.top - VIEWPORT_MENU_PADDING
       const shouldOpenAbove = availableBelow < 220 && availableAbove > availableBelow
@@ -1679,7 +1725,7 @@ function BoardTable({
             deleteStatusOption={deleteStatusOption}
             statusDraftByColumn={statusDraftByColumn}
             setStatusDraftByColumn={setStatusDraftByColumn}
-            deleteColumn={deleteColumn}
+            requestColumnDelete={requestColumnDelete}
             reorderColumns={reorderColumns}
             resizeColumn={resizeColumn}
             draggingColumnKey={draggingColumnKey}
@@ -1718,7 +1764,7 @@ function BoardTable({
             deleteStatusOption={deleteStatusOption}
             statusDraftByColumn={statusDraftByColumn}
             setStatusDraftByColumn={setStatusDraftByColumn}
-            deleteColumn={deleteColumn}
+            requestColumnDelete={requestColumnDelete}
             reorderColumns={reorderColumns}
             resizeColumn={resizeColumn}
             draggingColumnKey={draggingColumnKey}
@@ -1775,6 +1821,46 @@ function BoardTable({
           }}
         />
       )}
+
+      {pendingColumnDelete && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/35 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                <AlertTriangle size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-semibold text-slate-900">Delete column?</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  You are about to delete <span className="font-semibold text-slate-900">{pendingColumnDelete.label}</span>. This removes the column and its values from the board.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              This action cannot be undone.
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                onClick={() => setPendingColumnDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700"
+                onClick={() => {
+                  deleteColumn(pendingColumnDelete.key)
+                  setPendingColumnDelete(null)
+                }}
+              >
+                Delete column
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1802,7 +1888,7 @@ const TableView = memo(function TableView({
   deleteStatusOption,
   statusDraftByColumn,
   setStatusDraftByColumn,
-  deleteColumn,
+  requestColumnDelete,
   reorderColumns,
   resizeColumn,
   draggingColumnKey,
@@ -1891,7 +1977,7 @@ const TableView = memo(function TableView({
                       const selectedValues = columnFilters[column.key]?.values || []
                       const allFilterOptions = filterOptionsByColumn[column.key] || []
                       const visibleFilterOptions = allFilterOptions.filter((option) =>
-                        option.label.toLowerCase().includes(searchValue.toLowerCase()),
+                        String(option?.label || '').toLowerCase().includes(searchValue.toLowerCase()),
                       )
                       const allVisibleSelected =
                         visibleFilterOptions.length > 0 &&
@@ -1899,29 +1985,73 @@ const TableView = memo(function TableView({
 
                       return (
                         <>
-                    <button
-                      type="button"
-                      className="block w-full rounded px-2 py-1 text-left text-xs text-slate-700 transition hover:bg-slate-50"
-                      onClick={() => renameColumn(column.key)}
-                    >
-                      Rename
-                    </button>
-                    <div className="mt-1 space-y-1 px-2 py-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Column type</p>
-                      <select
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none"
-                        value={column.type}
-                        onChange={(event) => changeColumnType(column.key, event.target.value)}
-                      >
-                        {columnTypeOptions.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                          <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-semibold text-slate-700">{column.label}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-slate-400">Column actions</p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                                onClick={() => renameColumn(column.key)}
+                                aria-label={`Rename ${column.label}`}
+                                title="Rename"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                                onClick={() =>
+                                  setFilterValues(
+                                    column.key,
+                                    visibleFilterOptions.map((option) => option.token),
+                                  )
+                                }
+                                aria-label={`Select all visible values for ${column.label}`}
+                                title="Select visible"
+                              >
+                                <CheckCheck size={14} />
+                              </button>
+                              {columnFilters[column.key] && (
+                                <button
+                                  type="button"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                                  onClick={() => clearFiltersForColumn(column.key)}
+                                  aria-label={`Clear filters for ${column.label}`}
+                                  title="Clear filters"
+                                >
+                                  <FilterX size={14} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700"
+                                onClick={() => requestColumnDelete(column.key)}
+                                aria-label={`Delete ${column.label}`}
+                                title="Delete"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="space-y-1 px-1 pb-1">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Column type</p>
+                            <select
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none"
+                              value={column.type}
+                              onChange={(event) => changeColumnType(column.key, event.target.value)}
+                            >
+                              {columnTypeOptions.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                     {column.type === 'status' && (
-                      <div className="mt-2 space-y-2 border-t border-slate-200 px-2 py-2">
+                      <div className="mt-2 space-y-2 border-t border-slate-200 px-1 py-2">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Statuses</p>
                         <div className="space-y-1.5">
                           {getStatusOptionsForColumn(column).map((option) => (
@@ -1977,25 +2107,6 @@ const TableView = memo(function TableView({
                         </div>
                       </div>
                     )}
-                    <button
-                      type="button"
-                      className="block w-full rounded px-2 py-1 text-left text-xs text-rose-600 transition hover:bg-rose-50"
-                      onClick={() => deleteColumn(column.key)}
-                    >
-                      Delete
-                    </button>
-                    <button
-                      type="button"
-                      className="mt-1 block w-full rounded px-2 py-1 text-left text-xs text-slate-700 transition hover:bg-slate-50"
-                      onClick={() =>
-                        setFilterValues(
-                          column.key,
-                          visibleFilterOptions.map((option) => option.token),
-                        )
-                      }
-                    >
-                      Select visible
-                    </button>
                     <div className="mt-2 space-y-2 border-t border-slate-200 pt-2">
                       <input
                         type="search"
@@ -2048,17 +2159,6 @@ const TableView = memo(function TableView({
                         )}
                       </div>
                     </div>
-                    {columnFilters[column.key] && (
-                      <>
-                        <button
-                          type="button"
-                          className="mt-1 block w-full rounded px-2 py-1 text-left text-xs text-slate-700 transition hover:bg-slate-50"
-                          onClick={() => clearFiltersForColumn(column.key)}
-                        >
-                          Clear filters
-                        </button>
-                      </>
-                    )}
                         </>
                       )
                     })()}
@@ -2155,7 +2255,7 @@ const GroupedTableView = memo(function GroupedTableView({
   deleteStatusOption,
   statusDraftByColumn,
   setStatusDraftByColumn,
-  deleteColumn,
+  requestColumnDelete,
   reorderColumns,
   resizeColumn,
   draggingColumnKey,
@@ -2225,7 +2325,7 @@ const GroupedTableView = memo(function GroupedTableView({
             deleteStatusOption={deleteStatusOption}
             statusDraftByColumn={statusDraftByColumn}
             setStatusDraftByColumn={setStatusDraftByColumn}
-            deleteColumn={deleteColumn}
+            requestColumnDelete={requestColumnDelete}
               reorderColumns={reorderColumns}
               resizeColumn={resizeColumn}
               draggingColumnKey={draggingColumnKey}
@@ -2877,7 +2977,7 @@ function ReadOnlyCell({ column, value, textSize = 'medium' }) {
     )
   }
 
-  if (column.type === 'location' || column.type === 'address') {
+  if (isMapsColumn(column)) {
     if (!value) return <span className={`text-slate-700 ${textClass}`}>—</span>
 
     return (
