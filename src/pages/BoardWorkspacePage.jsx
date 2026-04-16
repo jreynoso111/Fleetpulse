@@ -444,7 +444,7 @@ function BoardWorkspacePage() {
 
   return (
     <section className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
         <div className="min-w-0 space-y-3">
           <Link
             to="/app/boards"
@@ -453,10 +453,10 @@ function BoardWorkspacePage() {
             <ArrowLeft size={16} />
             All boards
           </Link>
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:gap-4">
+          <div className="grid gap-3 2xl:grid-cols-[auto_minmax(0,1fr)] 2xl:items-center 2xl:gap-4">
             <h1 className="break-words text-3xl font-semibold tracking-tight text-slate-900">{board.name}</h1>
-            <div className="flex w-full max-w-3xl flex-col gap-2 sm:flex-row">
-              <div className="flex w-full max-w-lg items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-soft">
+            <div className="grid w-full max-w-4xl gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-soft">
                 <Search size={16} className="text-slate-400" />
                 <input
                   type="search"
@@ -472,7 +472,7 @@ function BoardWorkspacePage() {
                   setLocalTableSearchQuery('')
                   setClearTableFiltersToken((current) => current + 1)
                 }}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-soft transition hover:bg-slate-50"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-soft transition hover:bg-slate-50 sm:whitespace-nowrap"
               >
                 <FilterX size={16} />
                 Clear table filters
@@ -481,13 +481,13 @@ function BoardWorkspacePage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+        <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 xl:mx-0 xl:justify-end xl:px-0">
           {canEditBoard && (
             <>
               <button
                 type="button"
                 onClick={handleDownloadData}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <ArrowDownToLine size={15} />
                 Download data
@@ -495,7 +495,7 @@ function BoardWorkspacePage() {
               <button
                 type="button"
                 onClick={() => setShowUploadModal(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <ArrowUpToLine size={15} />
                 Upload data
@@ -507,7 +507,7 @@ function BoardWorkspacePage() {
               <button
                 type="button"
                 onClick={() => setShowSharingModal(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <Share2 size={15} />
                 Sharing
@@ -515,7 +515,7 @@ function BoardWorkspacePage() {
               <button
                 type="button"
                 onClick={() => setShowEditPageModal(true)}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <PencilLine size={15} />
                 Edit page
@@ -523,7 +523,7 @@ function BoardWorkspacePage() {
               <button
                 type="button"
                 onClick={handleDeleteBoard}
-                className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
               >
                 <Trash2 size={15} />
                 Delete page
