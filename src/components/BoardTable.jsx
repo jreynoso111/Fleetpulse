@@ -2818,7 +2818,7 @@ function HorizontalScrollFrame({
           <div style={{ width: scrollMetrics.scrollWidth, height: 16 }} />
         </div>
       )}
-      {children({ headerScrollRef, bodyScrollRef, onSyncScroll: syncScroll, scrollerClassName })}
+      {children({ headerScrollRef, bodyScrollRef, onSyncScroll: syncScroll, scrollerClassName, showTopScrollbar })}
     </div>
   )
 }
@@ -2858,7 +2858,6 @@ const TableView = memo(function TableView({
   onSortColumn,
   onOpenRowUpdates,
   stickyTopOffset = APP_STICKY_TOP_OFFSET,
-  headerTopOffset = APP_STICKY_TOP_OFFSET + TABLE_TOP_SCROLLBAR_HEIGHT,
   stickyZIndex = 12,
 }) {
   const columnFilters = useMemo(
@@ -2890,7 +2889,7 @@ const TableView = memo(function TableView({
     window.addEventListener('mouseup', handleMouseUp)
   }
 
-  function renderHeaderCells() {
+  function renderHeaderCells(headerTopOffset) {
     return (
       <>
         {visibleColumns.map((column) => (
@@ -3175,74 +3174,78 @@ const TableView = memo(function TableView({
       stickyTopOffset={stickyTopOffset}
       stickyZIndex={stickyZIndex}
     >
-      {({ bodyScrollRef, onSyncScroll, scrollerClassName: syncedScrollerClassName }) => (
-        <div
-          ref={bodyScrollRef}
-          className={syncedScrollerClassName}
-          onScroll={(event) => onSyncScroll(bodyScrollRef.current, event.currentTarget.scrollLeft)}
-        >
-          <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
-            {renderColumnGroup()}
-            <thead className="bg-slate-50">
-              <tr>{renderHeaderCells()}</tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((row) => (
-                <tr key={row.id} className="group transition hover:bg-sky-50/40">
-                  {visibleColumns.map((column) => (
-                    <td
-                      key={`${row.id}-${column.key}`}
-                      className={`border-b border-r border-slate-200 align-middle last:border-r-0 ${textSizeClasses.cell} ${getConditionalFormattingClassName(
-                        conditionalFormattingRules,
-                        column,
-                        row[column.key],
-                      )}`}
-                      onClick={() => {
-                        if (!readOnly && column.type !== 'updates') {
-                          setActiveCell({ rowId: row.id, columnKey: column.key })
-                        }
-                      }}
-                    >
-                      {!readOnly && column.type !== 'updates' && isEditing(row.id, column.key) ? (
-                        <EditableCell
-                          column={column}
-                          value={row[column.key]}
-                          rowId={row.id}
-                          textSize={textSize}
-                          textSizeClasses={textSizeClasses}
-                          onBlur={() => setActiveCell(null)}
-                          onChange={updateCell}
-                        />
-                      ) : (
-                        <ReadOnlyCell
-                          column={column}
-                          value={row[column.key]}
-                          row={row}
-                          textSize={textSize}
-                          onOpenUpdates={onOpenRowUpdates}
-                        />
-                      )}
-                    </td>
-                  ))}
-                  {!readOnly && (
-                    <td className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}>
-                      <button
-                        type="button"
-                        onClick={() => deleteRow(row.id)}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-                        aria-label={`Delete ${row.name || 'row'}`}
-                        title="Delete row"
+      {({ bodyScrollRef, onSyncScroll, scrollerClassName: syncedScrollerClassName, showTopScrollbar }) => {
+        const headerTopOffset = stickyTopOffset + (showTopScrollbar ? TABLE_TOP_SCROLLBAR_HEIGHT : 0)
+
+        return (
+          <div
+            ref={bodyScrollRef}
+            className={syncedScrollerClassName}
+            onScroll={(event) => onSyncScroll(bodyScrollRef.current, event.currentTarget.scrollLeft)}
+          >
+            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
+              {renderColumnGroup()}
+              <thead className="bg-slate-50">
+                <tr>{renderHeaderCells(headerTopOffset)}</tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((row) => (
+                  <tr key={row.id} className="group transition hover:bg-sky-50/40">
+                    {visibleColumns.map((column) => (
+                      <td
+                        key={`${row.id}-${column.key}`}
+                        className={`border-b border-r border-slate-200 align-middle last:border-r-0 ${textSizeClasses.cell} ${getConditionalFormattingClassName(
+                          conditionalFormattingRules,
+                          column,
+                          row[column.key],
+                        )}`}
+                        onClick={() => {
+                          if (!readOnly && column.type !== 'updates') {
+                            setActiveCell({ rowId: row.id, columnKey: column.key })
+                          }
+                        }}
                       >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                        {!readOnly && column.type !== 'updates' && isEditing(row.id, column.key) ? (
+                          <EditableCell
+                            column={column}
+                            value={row[column.key]}
+                            rowId={row.id}
+                            textSize={textSize}
+                            textSizeClasses={textSizeClasses}
+                            onBlur={() => setActiveCell(null)}
+                            onChange={updateCell}
+                          />
+                        ) : (
+                          <ReadOnlyCell
+                            column={column}
+                            value={row[column.key]}
+                            row={row}
+                            textSize={textSize}
+                            onOpenUpdates={onOpenRowUpdates}
+                          />
+                        )}
+                      </td>
+                    ))}
+                    {!readOnly && (
+                      <td className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}>
+                        <button
+                          type="button"
+                          onClick={() => deleteRow(row.id)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                          aria-label={`Delete ${row.name || 'row'}`}
+                          title="Delete row"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      }}
     </HorizontalScrollFrame>
   )
 })
@@ -3437,12 +3440,6 @@ const GroupedTableView = memo(function GroupedTableView({
                         onSortColumn={onSortColumn}
                         onOpenRowUpdates={onOpenRowUpdates}
                         stickyTopOffset={APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT + SUBGROUP_SECTION_HEADER_HEIGHT}
-                        headerTopOffset={
-                          APP_STICKY_TOP_OFFSET +
-                          GROUP_SECTION_HEADER_HEIGHT +
-                          SUBGROUP_SECTION_HEADER_HEIGHT +
-                          TABLE_TOP_SCROLLBAR_HEIGHT
-                        }
                         stickyZIndex={14}
                       />
                     ) : (
@@ -3493,7 +3490,6 @@ const GroupedTableView = memo(function GroupedTableView({
                 onSortColumn={onSortColumn}
                 onOpenRowUpdates={onOpenRowUpdates}
                 stickyTopOffset={APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT}
-                headerTopOffset={APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT + TABLE_TOP_SCROLLBAR_HEIGHT}
                 stickyZIndex={13}
               />
             )
