@@ -3145,6 +3145,17 @@ const TableView = memo(function TableView({
     )
   }
 
+  function renderColumnGroup() {
+    return (
+      <colgroup>
+        {visibleColumns.map((column) => (
+          <col key={column.key} style={{ width: column.minWidth, minWidth: column.minWidth }} />
+        ))}
+        {!readOnly && <col style={{ width: 88, minWidth: 88 }} />}
+      </colgroup>
+    )
+  }
+
   return (
     <HorizontalScrollFrame
       outerClassName="overflow-visible rounded-xl border border-slate-200 bg-white shadow-soft"
@@ -3159,7 +3170,8 @@ const TableView = memo(function TableView({
             className="sticky overflow-hidden border-b border-slate-200 bg-slate-50"
             style={{ top: headerTopOffset, zIndex: stickyZIndex }}
           >
-            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%' }}>
+            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
+              {renderColumnGroup()}
               <thead className="bg-slate-50">
                 <tr>{renderHeaderCells()}</tr>
               </thead>
@@ -3170,7 +3182,8 @@ const TableView = memo(function TableView({
             className={syncedScrollerClassName}
             onScroll={(event) => onSyncScroll(bodyScrollRef.current, event.currentTarget.scrollLeft)}
           >
-            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%' }}>
+            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
+              {renderColumnGroup()}
               <tbody>
                 {filteredRows.map((row) => (
                   <tr key={row.id} className="group transition hover:bg-sky-50/40">
