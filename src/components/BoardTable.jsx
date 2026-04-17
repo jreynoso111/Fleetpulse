@@ -2889,7 +2889,7 @@ const TableView = memo(function TableView({
     window.addEventListener('mouseup', handleMouseUp)
   }
 
-  function renderHeaderCells() {
+  function renderHeaderCells(headerTopOffset) {
     return (
       <>
         {visibleColumns.map((column) => (
