@@ -2904,7 +2904,13 @@ const TableView = memo(function TableView({
             onDrop={() => !readOnly && reorderColumns(draggingColumnKey, column.key)}
             onDragEnd={() => setDraggingColumnKey(null)}
             className={`relative border-b border-r border-slate-200 text-left font-semibold uppercase tracking-wide text-slate-500 last:border-r-0 ${textSizeClasses.header}`}
-            style={{ minWidth: column.minWidth, backgroundColor: 'var(--app-bg-soft)' }}
+            style={{
+              minWidth: column.minWidth,
+              backgroundColor: 'var(--app-bg-soft)',
+              position: 'sticky',
+              top: headerTopOffset,
+              zIndex: stickyZIndex,
+            }}
           >
             <div className="flex items-center justify-between gap-2">
               <span
@@ -3136,12 +3142,29 @@ const TableView = memo(function TableView({
         {!readOnly && (
           <th
             className={`border-b border-slate-200 text-right font-semibold uppercase tracking-wide text-slate-500 ${textSizeClasses.header}`}
-            style={{ minWidth: 88, backgroundColor: 'var(--app-bg-soft)' }}
+            style={{
+              minWidth: 88,
+              backgroundColor: 'var(--app-bg-soft)',
+              position: 'sticky',
+              top: headerTopOffset,
+              zIndex: stickyZIndex,
+            }}
           >
             Action
           </th>
         )}
       </>
+    )
+  }
+
+  function renderColumnGroup() {
+    return (
+      <colgroup>
+        {visibleColumns.map((column) => (
+          <col key={column.key} style={{ width: column.minWidth, minWidth: column.minWidth }} />
+        ))}
+        {!readOnly && <col style={{ width: 88, minWidth: 88 }} />}
+      </colgroup>
     )
   }
 
@@ -3152,82 +3175,73 @@ const TableView = memo(function TableView({
       stickyTopOffset={stickyTopOffset}
       stickyZIndex={stickyZIndex}
     >
-      {({ headerScrollRef, bodyScrollRef, onSyncScroll, scrollerClassName: syncedScrollerClassName }) => (
-        <>
-          <div
-            ref={headerScrollRef}
-            className="sticky overflow-hidden border-b border-slate-200 bg-slate-50"
-            style={{ top: headerTopOffset, zIndex: stickyZIndex }}
-          >
-            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%' }}>
-              <thead className="bg-slate-50">
-                <tr>{renderHeaderCells()}</tr>
-              </thead>
-            </table>
-          </div>
-          <div
-            ref={bodyScrollRef}
-            className={syncedScrollerClassName}
-            onScroll={(event) => onSyncScroll(bodyScrollRef.current, event.currentTarget.scrollLeft)}
-          >
-            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%' }}>
-              <tbody>
-                {filteredRows.map((row) => (
-                  <tr key={row.id} className="group transition hover:bg-sky-50/40">
-                    {visibleColumns.map((column) => (
-                      <td
-                        key={`${row.id}-${column.key}`}
-                        className={`border-b border-r border-slate-200 align-middle last:border-r-0 ${textSizeClasses.cell} ${getConditionalFormattingClassName(
-                          conditionalFormattingRules,
-                          column,
-                          row[column.key],
-                        )}`}
-                        onClick={() => {
-                          if (!readOnly && column.type !== 'updates') {
-                            setActiveCell({ rowId: row.id, columnKey: column.key })
-                          }
-                        }}
+      {({ bodyScrollRef, onSyncScroll, scrollerClassName: syncedScrollerClassName }) => (
+        <div
+          ref={bodyScrollRef}
+          className={syncedScrollerClassName}
+          onScroll={(event) => onSyncScroll(bodyScrollRef.current, event.currentTarget.scrollLeft)}
+        >
+          <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
+            {renderColumnGroup()}
+            <thead className="bg-slate-50">
+              <tr>{renderHeaderCells()}</tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((row) => (
+                <tr key={row.id} className="group transition hover:bg-sky-50/40">
+                  {visibleColumns.map((column) => (
+                    <td
+                      key={`${row.id}-${column.key}`}
+                      className={`border-b border-r border-slate-200 align-middle last:border-r-0 ${textSizeClasses.cell} ${getConditionalFormattingClassName(
+                        conditionalFormattingRules,
+                        column,
+                        row[column.key],
+                      )}`}
+                      onClick={() => {
+                        if (!readOnly && column.type !== 'updates') {
+                          setActiveCell({ rowId: row.id, columnKey: column.key })
+                        }
+                      }}
+                    >
+                      {!readOnly && column.type !== 'updates' && isEditing(row.id, column.key) ? (
+                        <EditableCell
+                          column={column}
+                          value={row[column.key]}
+                          rowId={row.id}
+                          textSize={textSize}
+                          textSizeClasses={textSizeClasses}
+                          onBlur={() => setActiveCell(null)}
+                          onChange={updateCell}
+                        />
+                      ) : (
+                        <ReadOnlyCell
+                          column={column}
+                          value={row[column.key]}
+                          row={row}
+                          textSize={textSize}
+                          onOpenUpdates={onOpenRowUpdates}
+                        />
+                      )}
+                    </td>
+                  ))}
+                  {!readOnly && (
+                    <td className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}>
+                      <button
+                        type="button"
+                        onClick={() => deleteRow(row.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                        aria-label={`Delete ${row.name || 'row'}`}
+                        title="Delete row"
                       >
-                        {!readOnly && column.type !== 'updates' && isEditing(row.id, column.key) ? (
-                          <EditableCell
-                            column={column}
-                            value={row[column.key]}
-                            rowId={row.id}
-                            textSize={textSize}
-                            textSizeClasses={textSizeClasses}
-                            onBlur={() => setActiveCell(null)}
-                            onChange={updateCell}
-                          />
-                        ) : (
-                          <ReadOnlyCell
-                            column={column}
-                            value={row[column.key]}
-                            row={row}
-                            textSize={textSize}
-                            onOpenUpdates={onOpenRowUpdates}
-                          />
-                        )}
-                      </td>
-                    ))}
-                    {!readOnly && (
-                      <td className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}>
-                        <button
-                          type="button"
-                          onClick={() => deleteRow(row.id)}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-                          aria-label={`Delete ${row.name || 'row'}`}
-                          title="Delete row"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </HorizontalScrollFrame>
   )
