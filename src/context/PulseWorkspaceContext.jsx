@@ -25,7 +25,6 @@ import {
 
 const PulseWorkspaceContext = createContext(null)
 const AUTOMATION_NOTIFICATION_TYPE = 'automation'
-const MAX_USER_BOARD_HISTORY = 25
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 function parseAutomationDate(value) {
@@ -131,6 +130,54 @@ function buildAutomationNotificationPayload(automation, board, item) {
       value,
     },
   }
+}
+
+function normalizeAutomationScheduleTime(value) {
+  if (typeof value !== 'string') return '09:00'
+  const normalized = value.trim()
+  return /^\d{2}:\d{2}$/.test(normalized) ? normalized : '09:00'
+}
+
+function getNextAutomationRunAt(scheduleTime, fromValue = new Date()) {
+  const baseDate = fromValue instanceof Date ? new Date(fromValue) : new Date(fromValue)
+  if (Number.isNaN(baseDate.getTime())) return null
+
+  const [hours, minutes] = normalizeAutomationScheduleTime(scheduleTime).split(':').map(Number)
+  const nextRun = new Date(baseDate)
+  nextRun.setHours(hours, minutes, 0, 0)
+
+  if (nextRun.getTime() <= baseDate.getTime()) {
+    nextRun.setDate(nextRun.getDate() + 1)
+  }
+
+  return nextRun.toISOString()
+}
+
+function shouldAutomationRunNow(automation, referenceDate = new Date()) {
+  const scheduleTime = normalizeAutomationScheduleTime(automation?.config?.scheduleTime)
+  const [hours, minutes] = scheduleTime.split(':').map(Number)
+  const scheduledDate = new Date(referenceDate)
+  scheduledDate.setHours(hours, minutes, 0, 0)
+
+  if (referenceDate.getTime() < scheduledDate.getTime()) return false
+
+  const lastRunAt = automation?.lastRunAt ? new Date(automation.lastRunAt) : null
+  if (!lastRunAt || Number.isNaN(lastRunAt.getTime())) return true
+
+  return (
+    lastRunAt.getFullYear() !== referenceDate.getFullYear() ||
+    lastRunAt.getMonth() !== referenceDate.getMonth() ||
+    lastRunAt.getDate() !== referenceDate.getDate()
+  )
+}
+
+function stripBoardHistoryPreferences(preferences) {
+  if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) {
+    return {}
+  }
+
+  const { undoStack, redoStack, ...rest } = preferences
+  return rest
 }
 
 export function PulseWorkspaceProvider({ children }) {
@@ -239,6 +286,18 @@ export function PulseWorkspaceProvider({ children }) {
 
     const usersById = new Map((userRows || []).map((user) => [user.id, user]))
     const normalizedSettings = mergeSettings(preferenceRow?.settings)
+    const rawBoardPreferences = boardPreferenceRows || []
+    const sanitizedBoardPreferences = rawBoardPreferences.map((row) => {
+      const cleanedPreferences = stripBoardHistoryPreferences(row.preferences)
+
+      return {
+        ...row,
+        preferences: cleanedPreferences,
+        hadHistory:
+          Array.isArray(row.preferences?.undoStack) ||
+          Array.isArray(row.preferences?.redoStack),
+      }
+    })
 
     setWorkspace({
       id: workspaceRow.id,
@@ -276,8 +335,23 @@ export function PulseWorkspaceProvider({ children }) {
         .map(mapNotificationRecord),
     )
     setBoardViewPreferences(
-      Object.fromEntries((boardPreferenceRows || []).map((row) => [row.board_id, row.preferences || {}])),
+      Object.fromEntries(sanitizedBoardPreferences.map((row) => [row.board_id, row.preferences || {}])),
     )
+
+    const preferencesWithHistory = sanitizedBoardPreferences.filter((row) => row.hadHistory)
+    if (preferencesWithHistory.length > 0) {
+      Promise.all(
+        preferencesWithHistory.map((row) =>
+          supabase.from('pulse_board_view_preferences').upsert({
+            user_id: row.user_id,
+            board_id: row.board_id,
+            preferences: row.preferences,
+          }),
+        ),
+      ).catch((error) => {
+        console.error('Failed to prune stored board history preferences.', error)
+      })
+    }
   }, [session?.user])
 
   useEffect(() => {
@@ -450,8 +524,14 @@ export function PulseWorkspaceProvider({ children }) {
     async (candidateAutomations = automations, candidateBoards = boards) => {
       if (!currentUserId) return
 
+      const evaluationTimestamp = new Date()
+
       const enabledNotificationAutomations = (candidateAutomations || []).filter(
-        (automation) => automation.enabled && automation.actionType === 'Notification' && automation.targetUserId === currentUserId,
+        (automation) =>
+          automation.enabled &&
+          automation.actionType === 'Notification' &&
+          automation.targetUserId === currentUserId &&
+          shouldAutomationRunNow(automation, evaluationTimestamp),
       )
       if (enabledNotificationAutomations.length === 0) return
 
@@ -491,7 +571,7 @@ export function PulseWorkspaceProvider({ children }) {
 
       if (pendingNotifications.length === 0) return
 
-      const timestamp = new Date().toISOString()
+      const timestamp = evaluationTimestamp.toISOString()
       const { data: insertedNotifications, error: insertError } = await supabase
         .from('pulse_notifications')
         .insert(pendingNotifications)
@@ -500,12 +580,26 @@ export function PulseWorkspaceProvider({ children }) {
       if (insertError) throw insertError
 
       if (touchedAutomationIds.size > 0) {
-        const { error: automationUpdateError } = await supabase
-          .from('pulse_automations')
-          .update({ last_run_at: timestamp })
-          .in('id', Array.from(touchedAutomationIds))
+        const automationIds = Array.from(touchedAutomationIds)
+        const touchedAutomations = enabledNotificationAutomations.filter((automation) => touchedAutomationIds.has(automation.id))
+        const nextRunAtById = Object.fromEntries(
+          touchedAutomations.map((automation) => [
+            automation.id,
+            getNextAutomationRunAt(automation.config?.scheduleTime, evaluationTimestamp),
+          ]),
+        )
 
-        if (automationUpdateError) throw automationUpdateError
+        await Promise.all(
+          automationIds.map((automationId) =>
+            supabase
+              .from('pulse_automations')
+              .update({
+                last_run_at: timestamp,
+                next_run_at: nextRunAtById[automationId],
+              })
+              .eq('id', automationId),
+          ),
+        )
       }
 
       if (insertedNotifications?.length) {
@@ -516,12 +610,21 @@ export function PulseWorkspaceProvider({ children }) {
       }
 
       if (touchedAutomationIds.size > 0) {
+        const touchedAutomations = enabledNotificationAutomations.filter((automation) => touchedAutomationIds.has(automation.id))
+        const nextRunAtById = Object.fromEntries(
+          touchedAutomations.map((automation) => [
+            automation.id,
+            getNextAutomationRunAt(automation.config?.scheduleTime, evaluationTimestamp),
+          ]),
+        )
+
         setAutomations((current) =>
           current.map((automation) =>
             touchedAutomationIds.has(automation.id)
               ? {
                   ...automation,
                   lastRunAt: timestamp,
+                  nextRunAt: nextRunAtById[automation.id] || automation.nextRunAt,
                 }
               : automation,
           ),
@@ -544,9 +647,11 @@ export function PulseWorkspaceProvider({ children }) {
       if (!currentUserId) throw new Error('No active user session.')
 
       const previousPreferences = clone(boardViewPreferences)
-      const existingPreferences = boardViewPreferences[boardId] || {}
+      const existingPreferences = stripBoardHistoryPreferences(boardViewPreferences[boardId] || {})
       const nextPreferences =
-        typeof updater === 'function' ? updater(existingPreferences) : { ...existingPreferences, ...updater }
+        stripBoardHistoryPreferences(
+          typeof updater === 'function' ? updater(existingPreferences) : { ...existingPreferences, ...updater },
+        )
 
       setBoardViewPreferences((current) => ({
         ...current,
@@ -721,7 +826,7 @@ export function PulseWorkspaceProvider({ children }) {
         setAllBoards((current) => [...current, board])
         return board
       },
-      async updateBoard(boardId, nextBoard, options = {}) {
+      async updateBoard(boardId, nextBoard) {
         const previousBoard = allBoards.find((board) => board.id === boardId)
         if (!previousBoard) return null
         const boardPermission = getBoardPermission(previousBoard, currentUserId)
@@ -750,75 +855,7 @@ export function PulseWorkspaceProvider({ children }) {
           ownerUserId: previousBoard.ownerUserId,
           ownerEmail: previousBoard.ownerEmail,
         }
-        const updatedBoard = await updateBoardRecord(boardToSave)
-
-        if (options?.userHistoryEntry) {
-          await persistBoardPreferences(boardId, (existingPreferences) => ({
-            ...existingPreferences,
-            undoStack: [options.userHistoryEntry, ...(existingPreferences.undoStack || [])].slice(0, MAX_USER_BOARD_HISTORY),
-            redoStack: [],
-          }))
-        }
-
-        return updatedBoard
-      },
-      async undoBoardChange(boardId) {
-        const board = allBoards.find((entry) => entry.id === boardId)
-        if (!board) return null
-
-        const boardPermission = getBoardPermission(board, currentUserId)
-        if (!boardPermission || (boardPermission !== 'owner' && boardPermission !== 'edit')) {
-          throw new Error('You do not have permission to restore this board.')
-        }
-
-        const boardPreferences = boardViewPreferences[boardId] || {}
-        const [latestChange, ...remainingChanges] = boardPreferences.undoStack || []
-        if (!latestChange?.previousState) {
-          throw new Error('There is no board change to undo.')
-        }
-
-        const restoredBoard = {
-          ...board,
-          columns: clone(latestChange.previousState.columns || board.columns || []),
-          items: clone(latestChange.previousState.items || board.items || []),
-        }
-
-        const updatedBoard = await updateBoardRecord(restoredBoard)
-        await persistBoardPreferences(boardId, (existingPreferences) => ({
-          ...existingPreferences,
-          undoStack: remainingChanges,
-          redoStack: [latestChange, ...(existingPreferences.redoStack || [])].slice(0, MAX_USER_BOARD_HISTORY),
-        }))
-        return updatedBoard
-      },
-      async redoBoardChange(boardId) {
-        const board = allBoards.find((entry) => entry.id === boardId)
-        if (!board) return null
-
-        const boardPermission = getBoardPermission(board, currentUserId)
-        if (!boardPermission || (boardPermission !== 'owner' && boardPermission !== 'edit')) {
-          throw new Error('You do not have permission to restore this board.')
-        }
-
-        const boardPreferences = boardViewPreferences[boardId] || {}
-        const [latestChange, ...remainingChanges] = boardPreferences.redoStack || []
-        if (!latestChange?.nextState) {
-          throw new Error('There is no board change to redo.')
-        }
-
-        const restoredBoard = {
-          ...board,
-          columns: clone(latestChange.nextState.columns || board.columns || []),
-          items: clone(latestChange.nextState.items || board.items || []),
-        }
-
-        const updatedBoard = await updateBoardRecord(restoredBoard)
-        await persistBoardPreferences(boardId, (existingPreferences) => ({
-          ...existingPreferences,
-          redoStack: remainingChanges,
-          undoStack: [latestChange, ...(existingPreferences.undoStack || [])].slice(0, MAX_USER_BOARD_HISTORY),
-        }))
-        return updatedBoard
+        return updateBoardRecord(boardToSave)
       },
       async deleteBoard(boardId) {
         const board = allBoards.find((entry) => entry.id === boardId)
@@ -943,8 +980,6 @@ export function PulseWorkspaceProvider({ children }) {
           conditionalFormattingRules: storedPreferences.conditionalFormattingRules || [],
           columnPreferences: storedPreferences.columnPreferences || {},
           textSize: storedPreferences.textSize || 'medium',
-          undoStack: Array.isArray(storedPreferences.undoStack) ? storedPreferences.undoStack : [],
-          redoStack: Array.isArray(storedPreferences.redoStack) ? storedPreferences.redoStack : [],
         }
       },
       async updateBoardViewPreferences(boardId, updates) {
@@ -1112,6 +1147,9 @@ export function PulseWorkspaceProvider({ children }) {
         const nextAutomation = {
           ...targetAutomation,
           enabled: !targetAutomation.enabled,
+          nextRunAt: !targetAutomation.enabled
+            ? getNextAutomationRunAt(targetAutomation.config?.scheduleTime)
+            : null,
         }
         setAutomations((current) =>
           current.map((automation) => (automation.id === automationId ? nextAutomation : automation)),
@@ -1120,7 +1158,10 @@ export function PulseWorkspaceProvider({ children }) {
         try {
           const { error } = await supabase
             .from('pulse_automations')
-            .update({ enabled: nextAutomation.enabled })
+            .update({
+              enabled: nextAutomation.enabled,
+              next_run_at: nextAutomation.nextRunAt,
+            })
             .eq('id', automationId)
 
           if (error) throw error
@@ -1132,6 +1173,8 @@ export function PulseWorkspaceProvider({ children }) {
       async createAutomation(payload) {
         if (!currentUser) throw new Error('No active user session.')
 
+        const scheduleTime = normalizeAutomationScheduleTime(payload?.config?.scheduleTime)
+
         const automation = {
           id: createStableId('auto'),
           name: String(payload?.name || '').trim(),
@@ -1140,10 +1183,13 @@ export function PulseWorkspaceProvider({ children }) {
           actionType: 'Notification',
           enabled: payload?.enabled !== false,
           lastRunAt: null,
-          nextRunAt: null,
+          nextRunAt: getNextAutomationRunAt(scheduleTime),
           targetUserId: currentUser.id,
           createdByUserId: currentUser.id,
-          config: clone(payload?.config || {}),
+          config: {
+            ...clone(payload?.config || {}),
+            scheduleTime,
+          },
         }
 
         if (!automation.name) {
@@ -1167,6 +1213,66 @@ export function PulseWorkspaceProvider({ children }) {
           throw error
         }
       },
+      async updateAutomation(automationId, payload) {
+        if (!currentUser) throw new Error('No active user session.')
+
+        const targetAutomation = automations.find((automation) => automation.id === automationId)
+        if (!targetAutomation) throw new Error('Automation not found.')
+
+        const scheduleTime = normalizeAutomationScheduleTime(payload?.config?.scheduleTime)
+        const nextAutomation = {
+          ...targetAutomation,
+          name: String(payload?.name || targetAutomation.name).trim(),
+          description: String(payload?.description || targetAutomation.description).trim(),
+          triggerType: payload?.triggerType || targetAutomation.triggerType,
+          enabled: payload?.enabled ?? targetAutomation.enabled,
+          nextRunAt:
+            payload?.enabled === false || targetAutomation.enabled === false
+              ? (payload?.enabled ?? targetAutomation.enabled)
+                ? getNextAutomationRunAt(scheduleTime)
+                : null
+              : getNextAutomationRunAt(scheduleTime),
+          config: {
+            ...clone(payload?.config || {}),
+            scheduleTime,
+          },
+        }
+
+        if (!nextAutomation.name) {
+          throw new Error('Automation name is required.')
+        }
+
+        const previousAutomations = clone(automations)
+        setAutomations((current) =>
+          current.map((automation) => (automation.id === automationId ? nextAutomation : automation)),
+        )
+
+        try {
+          const { error } = await supabase
+            .from('pulse_automations')
+            .update(automationToRecord(nextAutomation, currentUser.workspaceId, currentUser.id))
+            .eq('id', automationId)
+
+          if (error) throw error
+
+          return nextAutomation
+        } catch (error) {
+          setAutomations(previousAutomations)
+          throw error
+        }
+      },
+      async deleteAutomation(automationId) {
+        const previousAutomations = clone(automations)
+        setAutomations((current) => current.filter((automation) => automation.id !== automationId))
+
+        try {
+          const { error } = await supabase.from('pulse_automations').delete().eq('id', automationId)
+          if (error) throw error
+        } catch (error) {
+          setAutomations(previousAutomations)
+          throw error
+        }
+      },
     }),
     [
       allBoards,
@@ -1181,6 +1287,7 @@ export function PulseWorkspaceProvider({ children }) {
       settings,
       shellData,
       unreadNotificationsCount,
+      automations,
       visibleAutomations,
       workspace,
       workspaceLoading,

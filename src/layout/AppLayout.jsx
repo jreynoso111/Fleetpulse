@@ -436,7 +436,7 @@ function AppLayout() {
         </header>
 
         <main className="flex-1 px-3 py-5 pb-24 sm:px-4 sm:py-6 xl:px-5">
-          <div className="mx-auto w-full max-w-[min(100%,1800px)]">
+          <div className="w-full">
             <Outlet />
           </div>
         </main>

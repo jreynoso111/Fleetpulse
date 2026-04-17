@@ -1,5 +1,5 @@
-import { Bot, Plus, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Bot, PencilLine, Plus, Trash2, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePulseWorkspace } from '../context/PulseWorkspaceContext'
 
 const automationOperatorOptions = [
@@ -36,7 +36,78 @@ function getColumnInputType(columnType) {
   return 'text'
 }
 
-function CreateAutomationModal({ boards, onClose, onCreate }) {
+function getDefaultOperator(columnType) {
+  return columnType === 'date' ? 'date_passed' : 'equals'
+}
+
+function getOperatorOptions(columnType) {
+  return automationOperatorOptions.filter((option) => columnType === 'date' || option.value !== 'date_passed')
+}
+
+function getComparisonPlaceholder(column) {
+  if (!column) return 'Comparison value'
+  if (column.type === 'currency') return '0.00'
+  if (column.type === 'number') return 'Enter a number'
+  if (column.type === 'date') return 'Select a date'
+  if (column.type === 'email') return 'name@company.com'
+  if (column.type === 'phone') return 'Enter a phone number'
+  return `Value for ${column.label.toLowerCase()}`
+}
+
+function renderComparisonField({ column, value, onChange, label, idSuffix = 'value' }) {
+  if (column?.type === 'boolean') {
+    return (
+      <label className="space-y-1.5">
+        <span className="text-sm font-medium text-slate-900">{label}</span>
+        <select
+          value={value}
+          onChange={onChange}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
+        >
+          <option value="">Select a value</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      </label>
+    )
+  }
+
+  if (column?.type === 'status') {
+    return (
+      <label className="space-y-1.5">
+        <span className="text-sm font-medium text-slate-900">{label}</span>
+        <select
+          value={value}
+          onChange={onChange}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
+        >
+          <option value="">Select a status</option>
+          {(column.statusOptions || []).map((option) => (
+            <option key={`${idSuffix}-${option}`} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+    )
+  }
+
+  return (
+    <label className="space-y-1.5">
+      <span className="text-sm font-medium text-slate-900">{label}</span>
+      <input
+        type={getColumnInputType(column?.type)}
+        step={column?.type === 'currency' ? '0.01' : column?.type === 'number' ? '1' : undefined}
+        value={value}
+        onChange={onChange}
+        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
+        placeholder={getComparisonPlaceholder(column)}
+      />
+    </label>
+  )
+}
+
+function AutomationModal({ boards, automation = null, onClose, onSave }) {
   const columnCatalog = useMemo(() => {
     const catalog = new Map()
 
@@ -47,6 +118,7 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
             key: column.key,
             label: column.label,
             type: column.type,
+            statusOptions: column.statusOptions || [],
           })
         }
       })
@@ -55,16 +127,29 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
     return Array.from(catalog.values()).sort((left, right) => left.label.localeCompare(right.label))
   }, [boards])
 
+  const initialBoardId = automation?.config?.boardId || boards[0]?.id || ''
+  const initialColumns =
+    (automation?.config?.boardScope === 'single'
+      ? boards.find((board) => board.id === initialBoardId)?.columns
+      : columnCatalog) || []
+  const initialColumn =
+    initialColumns.find((column) => column.key === automation?.config?.columnKey) ||
+    columnCatalog.find((column) => column.key === automation?.config?.columnKey) ||
+    initialColumns[0] ||
+    columnCatalog[0] ||
+    null
+
   const [form, setForm] = useState(() => ({
-    name: '',
-    description: '',
-    boardScope: 'all',
-    boardId: boards[0]?.id || '',
-    columnKey: columnCatalog[0]?.key || '',
-    operator: 'date_passed',
-    value: '',
-    secondaryValue: '',
-    message: '',
+    name: automation?.name || '',
+    description: automation?.description || '',
+    boardScope: automation?.config?.boardScope || 'all',
+    boardId: initialBoardId,
+    columnKey: automation?.config?.columnKey || initialColumn?.key || '',
+    operator: automation?.config?.operator || getDefaultOperator(initialColumn?.type),
+    value: automation?.config?.value || '',
+    secondaryValue: automation?.config?.secondaryValue || '',
+    message: automation?.config?.message || '',
+    scheduleTime: automation?.config?.scheduleTime || '09:00',
   }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -81,6 +166,34 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
     if (form.boardScope !== 'single') return columnCatalog
     return boards.find((board) => board.id === form.boardId)?.columns || []
   }, [boards, columnCatalog, form.boardId, form.boardScope])
+
+  const operatorOptions = useMemo(() => getOperatorOptions(selectedColumn?.type), [selectedColumn?.type])
+  const requiresComparisonValue = !['date_passed', 'is_empty', 'is_not_empty'].includes(form.operator)
+
+  useEffect(() => {
+    if (!availableColumns.length) return
+    if (availableColumns.some((column) => column.key === form.columnKey)) return
+
+    setForm((current) => ({
+      ...current,
+      columnKey: availableColumns[0]?.key || '',
+    }))
+  }, [availableColumns, form.columnKey])
+
+  useEffect(() => {
+    if (!selectedColumn) return
+
+    const nextOperatorOptions = getOperatorOptions(selectedColumn.type)
+    const hasCurrentOperator = nextOperatorOptions.some((option) => option.value === form.operator)
+    if (hasCurrentOperator) return
+
+    setForm((current) => ({
+      ...current,
+      operator: getDefaultOperator(selectedColumn.type),
+      value: '',
+      secondaryValue: '',
+    }))
+  }, [form.operator, selectedColumn])
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -104,7 +217,7 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
     setSaving(true)
 
     try {
-      await onCreate({
+      await onSave({
         name: form.name.trim(),
         description:
           form.description.trim() ||
@@ -122,11 +235,12 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
           value: form.value,
           secondaryValue: form.secondaryValue,
           message: form.message.trim(),
+          scheduleTime: form.scheduleTime,
         },
       })
       onClose()
     } catch (nextError) {
-      setError(nextError.message || 'Could not create automation.')
+      setError(nextError.message || 'Could not save automation.')
     } finally {
       setSaving(false)
     }
@@ -140,13 +254,17 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
       }}
     >
       <div
-        className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-2xl"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-4xl overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">New automation</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Create notification automation</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
+              {automation ? 'Edit automation' : 'New automation'}
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
+              {automation ? 'Update notification automation' : 'Create notification automation'}
+            </h2>
             <p className="mt-1 text-sm text-slate-600">
               Build a rule that watches accessible boards and sends a notification to your account when it matches.
             </p>
@@ -161,9 +279,9 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
           </button>
         </div>
 
-        <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2">
+        <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+          <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
+            <label className="space-y-1.5">
               <span className="text-sm font-medium text-slate-900">Automation name</span>
               <input
                 value={form.name}
@@ -173,7 +291,7 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
               />
             </label>
 
-            <label className="space-y-2">
+            <label className="space-y-1.5">
               <span className="text-sm font-medium text-slate-900">Description</span>
               <input
                 value={form.description}
@@ -184,8 +302,8 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
             </label>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <label className="space-y-1.5">
               <span className="text-sm font-medium text-slate-900">Board scope</span>
               <select
                 value={form.boardScope}
@@ -202,7 +320,7 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
               </select>
             </label>
 
-            <label className="space-y-2">
+            <label className="space-y-1.5">
               <span className="text-sm font-medium text-slate-900">Board</span>
               <select
                 value={form.boardId}
@@ -224,10 +342,8 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
                 ))}
               </select>
             </label>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2">
+            <label className="space-y-1.5">
               <span className="text-sm font-medium text-slate-900">Watch column</span>
               <select
                 value={form.columnKey}
@@ -242,64 +358,37 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
               </select>
             </label>
 
-            <label className="space-y-2">
+            <label className="space-y-1.5">
               <span className="text-sm font-medium text-slate-900">Condition</span>
               <select
                 value={form.operator}
                 onChange={(event) => setForm((current) => ({ ...current, operator: event.target.value }))}
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
               >
-                {automationOperatorOptions
-                  .filter((option) => selectedColumn?.type === 'date' || option.value !== 'date_passed')
-                  .map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
+                {operatorOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
 
-          {!['date_passed', 'is_empty', 'is_not_empty'].includes(form.operator) && (
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm font-medium text-slate-900">Value</span>
-                <input
-                  type={getColumnInputType(selectedColumn?.type)}
-                  value={form.value}
-                  onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
-                  placeholder="Comparison value"
-                />
-              </label>
+          <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium text-slate-900">Run time</span>
+              <input
+                type="time"
+                value={form.scheduleTime}
+                onChange={(event) => setForm((current) => ({ ...current, scheduleTime: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
+              />
+              <p className="text-xs text-slate-500">
+                Pulse evaluates this automation daily at the selected time.
+              </p>
+            </label>
 
-              {form.operator === 'between' ? (
-                <label className="space-y-2">
-                  <span className="text-sm font-medium text-slate-900">And value</span>
-                  <input
-                    type={getColumnInputType(selectedColumn?.type)}
-                    value={form.secondaryValue}
-                    onChange={(event) => setForm((current) => ({ ...current, secondaryValue: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
-                    placeholder="Upper bound"
-                  />
-                </label>
-              ) : (
-                <label className="space-y-2">
-                  <span className="text-sm font-medium text-slate-900">Notification message</span>
-                  <input
-                    value={form.message}
-                    onChange={(event) => setForm((current) => ({ ...current, message: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none ring-sky-200 transition focus:ring"
-                    placeholder="Optional custom notification text"
-                  />
-                </label>
-              )}
-            </div>
-          )}
-
-          {['date_passed', 'is_empty', 'is_not_empty', 'between'].includes(form.operator) && (
-            <label className="space-y-2">
+            <label className="space-y-1.5">
               <span className="text-sm font-medium text-slate-900">Notification message</span>
               <input
                 value={form.message}
@@ -308,6 +397,26 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
                 placeholder="Optional custom notification text"
               />
             </label>
+          </div>
+
+          {requiresComparisonValue && (
+            <div className={`grid gap-4 ${form.operator === 'between' ? 'md:grid-cols-2' : ''}`}>
+              {renderComparisonField({
+                column: selectedColumn,
+                value: form.value,
+                onChange: (event) => setForm((current) => ({ ...current, value: event.target.value })),
+                label: 'Value',
+              })}
+
+              {form.operator === 'between' &&
+                renderComparisonField({
+                  column: selectedColumn,
+                  value: form.secondaryValue,
+                  onChange: (event) => setForm((current) => ({ ...current, secondaryValue: event.target.value })),
+                  label: 'And value',
+                  idSuffix: 'secondary',
+                })}
+            </div>
           )}
 
           {error && <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
@@ -326,7 +435,7 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
               className="rounded-full px-5 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ backgroundColor: 'var(--pulse-accent)' }}
             >
-              {saving ? 'Creating...' : 'Create automation'}
+              {saving ? (automation ? 'Saving...' : 'Creating...') : automation ? 'Save changes' : 'Create automation'}
             </button>
           </div>
         </form>
@@ -336,8 +445,11 @@ function CreateAutomationModal({ boards, onClose, onCreate }) {
 }
 
 function AutomationsPage() {
-  const { automations, boards, currentUser, createAutomation, toggleAutomation } = usePulseWorkspace()
+  const { automations, boards, currentUser, createAutomation, deleteAutomation, toggleAutomation, updateAutomation } = usePulseWorkspace()
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingAutomationId, setEditingAutomationId] = useState('')
+
+  const editingAutomation = automations.find((automation) => automation.id === editingAutomationId) || null
 
   if (!currentUser) return null
 
@@ -362,10 +474,19 @@ function AutomationsPage() {
       </div>
 
       {showCreateModal && (
-        <CreateAutomationModal
+        <AutomationModal
           boards={boards}
           onClose={() => setShowCreateModal(false)}
-          onCreate={(payload) => createAutomation(payload)}
+          onSave={(payload) => createAutomation(payload)}
+        />
+      )}
+
+      {editingAutomation && (
+        <AutomationModal
+          automation={editingAutomation}
+          boards={boards}
+          onClose={() => setEditingAutomationId('')}
+          onSave={(payload) => updateAutomation(editingAutomation.id, payload)}
         />
       )}
 
@@ -421,10 +542,40 @@ function AutomationsPage() {
                   <dd className="text-right text-slate-800">{formatDateTime(automation.lastRunAt)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
+                  <dt>Run time</dt>
+                  <dd className="text-right text-slate-800">{automation.config?.scheduleTime || '09:00'}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
                   <dt>Next run</dt>
                   <dd className="text-right text-slate-800">{formatDateTime(automation.nextRunAt)}</dd>
                 </div>
               </dl>
+
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingAutomationId(automation.id)}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                  <PencilLine size={14} />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const confirmed = window.confirm(`Delete automation "${automation.name}"?`)
+                    if (!confirmed) return
+
+                    deleteAutomation(automation.id).catch((error) => {
+                      console.error('Failed to delete automation.', error)
+                    })
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                >
+                  <Trash2 size={14} />
+                  Delete
+                </button>
+              </div>
             </article>
           ))}
         </div>

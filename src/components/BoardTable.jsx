@@ -9,6 +9,10 @@ const COLUMN_MENU_WIDTH = 272
 const VIEWPORT_MENU_PADDING = 12
 const COLUMN_MENU_MAX_HEIGHT = 420
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const APP_STICKY_TOP_OFFSET = 76
+const TABLE_TOP_SCROLLBAR_HEIGHT = 17
+const GROUP_SECTION_HEADER_HEIGHT = 57
+const SUBGROUP_SECTION_HEADER_HEIGHT = 45
 const conditionalOperatorOptions = [
   { value: 'equals', label: 'Is equal to' },
   { value: 'not_equals', label: 'Is not equal to' },
@@ -150,10 +154,6 @@ function getInitials(name) {
     .toUpperCase()
 }
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value))
-}
-
 function createRowId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `item-${crypto.randomUUID()}`
@@ -185,32 +185,6 @@ function createConditionalRuleId() {
   }
 
   return `rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function createBoardHistoryEntryId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `board-history-${crypto.randomUUID()}`
-  }
-
-  return `board-history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function createUserBoardHistoryEntry({ title, type, previousColumns, previousRows, nextColumns, nextRows, description = '' }) {
-  return {
-    id: createBoardHistoryEntryId(),
-    createdAt: new Date().toISOString(),
-    title,
-    type,
-    description,
-    previousState: {
-      columns: clone(previousColumns || []),
-      items: clone(previousRows || []),
-    },
-    nextState: {
-      columns: clone(nextColumns || []),
-      items: clone(nextRows || []),
-    },
-  }
 }
 
 function formatCurrencyValue(value) {
@@ -364,6 +338,13 @@ function isTrackingColumn(column) {
     normalizedKey.includes('tracking-number') ||
     normalizedLabel.includes('tracking')
   )
+}
+
+function isEmailColumn(column) {
+  const normalizedKey = String(column?.key || '').toLowerCase()
+  const normalizedLabel = String(column?.label || '').toLowerCase()
+
+  return normalizedKey.includes('email') || normalizedLabel.includes('email')
 }
 
 function getColumnLinkUrl(column, value) {
@@ -939,7 +920,12 @@ function BoardTable({
   useEffect(() => {
     if (!openColumnMenu) return
 
-    function handleViewportChange() {
+    function handleViewportChange(event) {
+      const target = event?.target
+      if (target instanceof Element && target.closest('[data-column-menu]')) {
+        return
+      }
+
       setOpenColumnMenu(null)
       setColumnMenuStyle(null)
     }
@@ -1328,33 +1314,21 @@ function BoardTable({
   }, [kanbanCollapsedLaneIdsByField, kanbanGroupKey, kanbanLaneDefinitions, persistViewConfig])
 
   const pushBoardChange = useCallback(
-    (nextColumns, nextRows, historyEntry = null) => {
+    (nextColumns, nextRows) => {
       if (!onDataChange) return
-      onDataChange({ columns: nextColumns, items: nextRows }, historyEntry ? { userHistoryEntry: historyEntry } : {})
+      onDataChange({ columns: nextColumns, items: nextRows })
     },
     [onDataChange],
   )
 
   const updateCell = useCallback((rowId, columnKey, value) => {
     setBoardRows((currentRows) => {
-      const targetColumn = boardColumns.find((column) => column.key === columnKey)
       const nextRows = applyRowUpdateHistory(
         currentRows,
         currentRows.map((row) => (row.id === rowId ? { ...row, [columnKey]: value } : row)),
         boardColumns,
       )
-      pushBoardChange(
-        boardColumns,
-        nextRows,
-        createUserBoardHistoryEntry({
-          title: `Edited ${targetColumn?.label || columnKey}`,
-          type: 'edit-cell',
-          previousColumns: boardColumns,
-          previousRows: currentRows,
-          nextColumns: boardColumns,
-          nextRows,
-        }),
-      )
+      pushBoardChange(boardColumns, nextRows)
       return nextRows
     })
   }, [boardColumns, pushBoardChange])
@@ -1367,18 +1341,7 @@ function BoardTable({
           currentRows.map((row) => (row.id === rowId ? { ...row, ...updates } : row)),
           boardColumns,
         )
-        pushBoardChange(
-          boardColumns,
-          nextRows,
-          createUserBoardHistoryEntry({
-            title: 'Updated row values',
-            type: 'edit-row',
-            previousColumns: boardColumns,
-            previousRows: currentRows,
-            nextColumns: boardColumns,
-            nextRows,
-          }),
-        )
+        pushBoardChange(boardColumns, nextRows)
         return nextRows
       })
     },
@@ -1421,19 +1384,8 @@ function BoardTable({
     }, {})
 
     setBoardRows((currentRows) => {
-      const nextRows = [...currentRows, { id: createRowId(), ...rowValues }]
-      pushBoardChange(
-        boardColumns,
-        nextRows,
-        createUserBoardHistoryEntry({
-          title: 'Added row',
-          type: 'add-row',
-          previousColumns: boardColumns,
-          previousRows: currentRows,
-          nextColumns: boardColumns,
-          nextRows,
-        }),
-      )
+      const nextRows = [{ id: createRowId(), ...rowValues }, ...currentRows]
+      pushBoardChange(boardColumns, nextRows)
       return nextRows
     })
   }, [boardColumns, nextItemNumber, pushBoardChange])
@@ -1480,19 +1432,8 @@ function BoardTable({
       }, {})
 
       setBoardRows((currentRows) => {
-        const nextRows = [...currentRows, { id: createRowId(), ...rowValues }]
-        pushBoardChange(
-          boardColumns,
-          nextRows,
-          createUserBoardHistoryEntry({
-            title: `Added row in ${groupValue}`,
-            type: 'add-row',
-            previousColumns: boardColumns,
-            previousRows: currentRows,
-            nextColumns: boardColumns,
-            nextRows,
-          }),
-        )
+        const nextRows = [{ id: createRowId(), ...rowValues }, ...currentRows]
+        pushBoardChange(boardColumns, nextRows)
         return nextRows
       })
     },
@@ -1525,18 +1466,7 @@ function BoardTable({
     setBoardColumns(nextColumns)
     setBoardRows((currentRows) => {
       const nextRows = currentRows.map((row) => ({ ...row, [uniqueKey]: getDefaultValue(newColumn.type, createdColumn) }))
-      pushBoardChange(
-        nextColumns,
-        nextRows,
-        createUserBoardHistoryEntry({
-          title: `Added column ${cleanLabel}`,
-          type: 'add-column',
-          previousColumns: boardColumns,
-          previousRows: currentRows,
-          nextColumns,
-          nextRows,
-        }),
-      )
+      pushBoardChange(nextColumns, nextRows)
       return nextRows
     })
     setNewColumn({ label: '', type: 'text' })
@@ -1600,7 +1530,6 @@ function BoardTable({
   const changeColumnType = useCallback(
     (columnKey, nextType) => {
       if (!columnTypeOptions.includes(nextType)) return
-      const targetColumn = boardColumns.find((column) => column.key === columnKey)
 
       const nextColumns = boardColumns.map((column) =>
         column.key === columnKey
@@ -1626,18 +1555,7 @@ function BoardTable({
           ...row,
           [columnKey]: normalizeInputValue(nextType, row[columnKey]),
         }))
-        pushBoardChange(
-          nextColumns,
-          nextRows,
-          createUserBoardHistoryEntry({
-            title: `Changed ${targetColumn?.label || columnKey} type`,
-            type: 'change-column-type',
-            previousColumns: boardColumns,
-            previousRows: currentRows,
-            nextColumns,
-            nextRows,
-          }),
-        )
+        pushBoardChange(nextColumns, nextRows)
         return nextRows
       })
       setOpenColumnMenu(null)
@@ -1655,18 +1573,7 @@ function BoardTable({
         column.key === columnKey ? { ...column, label: nextLabel.trim() } : column,
       )
       setBoardColumns(nextColumns)
-      pushBoardChange(
-        nextColumns,
-        boardRows,
-        createUserBoardHistoryEntry({
-          title: `Renamed column ${targetColumn?.label || columnKey}`,
-          type: 'rename-column',
-          previousColumns: boardColumns,
-          previousRows: boardRows,
-          nextColumns,
-          nextRows: boardRows,
-        }),
-      )
+      pushBoardChange(nextColumns, boardRows)
       setOpenColumnMenu(null)
     },
     [boardColumns, boardRows, pushBoardChange],
@@ -1675,7 +1582,6 @@ function BoardTable({
   const deleteColumn = useCallback((columnKey) => {
     if (!canManageColumns) return
 
-    const targetColumn = boardColumns.find((column) => column.key === columnKey)
     const nextColumns = boardColumns.filter((column) => column.key !== columnKey)
     if (columnKey === groupByKey) {
       setGroupByKey('')
@@ -1692,18 +1598,7 @@ function BoardTable({
         delete updatedRow[columnKey]
         return updatedRow
       })
-      pushBoardChange(
-        nextColumns,
-        nextRows,
-        createUserBoardHistoryEntry({
-          title: `Deleted column ${targetColumn?.label || columnKey}`,
-          type: 'delete-column',
-          previousColumns: boardColumns,
-          previousRows: currentRows,
-          nextColumns,
-          nextRows,
-        }),
-      )
+      pushBoardChange(nextColumns, nextRows)
       return nextRows
     })
     setFilters((currentFilters) => currentFilters.filter((filter) => filter.columnKey !== columnKey))
@@ -1744,18 +1639,7 @@ function BoardTable({
           : column,
       )
       setBoardColumns(nextColumns)
-      pushBoardChange(
-        nextColumns,
-        boardRows,
-        createUserBoardHistoryEntry({
-          title: `Added status ${nextLabel}`,
-          type: 'add-status',
-          previousColumns: boardColumns,
-          previousRows: boardRows,
-          nextColumns,
-          nextRows: boardRows,
-        }),
-      )
+      pushBoardChange(nextColumns, boardRows)
       setStatusDraftByColumn((current) => ({ ...current, [columnKey]: '' }))
     },
     [boardColumns, boardRows, pushBoardChange, statusDraftByColumn],
@@ -1792,18 +1676,7 @@ function BoardTable({
       )
       setBoardColumns(nextColumns)
       setBoardRows(nextRows)
-      pushBoardChange(
-        nextColumns,
-        nextRows,
-        createUserBoardHistoryEntry({
-          title: `Renamed status ${currentLabel}`,
-          type: 'rename-status',
-          previousColumns: boardColumns,
-          previousRows: boardRows,
-          nextColumns,
-          nextRows,
-        }),
-      )
+      pushBoardChange(nextColumns, nextRows)
     },
     [boardColumns, boardRows, pushBoardChange],
   )
@@ -1835,19 +1708,7 @@ function BoardTable({
       )
       setBoardColumns(nextColumns)
       setBoardRows(nextRows)
-      pushBoardChange(
-        nextColumns,
-        nextRows,
-        createUserBoardHistoryEntry({
-          title: `Deleted status ${optionLabel}`,
-          type: 'delete-status',
-          previousColumns: boardColumns,
-          previousRows: boardRows,
-          nextColumns,
-          nextRows,
-          description: `Rows using ${optionLabel} were reassigned to ${fallbackValue || 'an empty value'}.`,
-        }),
-      )
+      pushBoardChange(nextColumns, nextRows)
     },
     [boardColumns, boardRows, pushBoardChange],
   )
@@ -1869,18 +1730,7 @@ function BoardTable({
           : column,
       )
       setBoardColumns(nextColumns)
-      pushBoardChange(
-        nextColumns,
-        boardRows,
-        createUserBoardHistoryEntry({
-          title: `Changed color for ${optionLabel}`,
-          type: 'status-color',
-          previousColumns: boardColumns,
-          previousRows: boardRows,
-          nextColumns,
-          nextRows: boardRows,
-        }),
-      )
+      pushBoardChange(nextColumns, boardRows)
     },
     [boardColumns, boardRows, pushBoardChange],
   )
@@ -1950,18 +1800,7 @@ function BoardTable({
           ),
           boardColumns,
         )
-        pushBoardChange(
-          boardColumns,
-          nextRows,
-          createUserBoardHistoryEntry({
-            title: `Moved row to ${String(laneValue)}`,
-            type: 'kanban-move',
-            previousColumns: boardColumns,
-            previousRows: currentRows,
-            nextColumns: boardColumns,
-            nextRows,
-          }),
-        )
+        pushBoardChange(boardColumns, nextRows)
         return nextRows
       })
       setDraggingId(null)
@@ -2173,18 +2012,7 @@ function BoardTable({
       if (rowUpdateDetails?.rowId === rowId) {
         setRowUpdateDetails(null)
       }
-      pushBoardChange(
-        boardColumns,
-        nextRows,
-        createUserBoardHistoryEntry({
-          title: `Deleted ${rowLabel}`,
-          type: 'delete-row',
-          previousColumns: boardColumns,
-          previousRows: boardRows,
-          nextColumns: boardColumns,
-          nextRows,
-        }),
-      )
+      pushBoardChange(boardColumns, nextRows)
     },
     [activeCell?.rowId, boardColumns, boardRows, kanbanEditorRowId, pushBoardChange, rowUpdateDetails?.rowId],
   )
@@ -2917,8 +2745,15 @@ function BoardTable({
   )
 }
 
-function HorizontalScrollFrame({ children, outerClassName = '', scrollerClassName = '' }) {
+function HorizontalScrollFrame({
+  children,
+  outerClassName = '',
+  scrollerClassName = '',
+  stickyTopOffset = APP_STICKY_TOP_OFFSET,
+  stickyZIndex = 12,
+}) {
   const topScrollRef = useRef(null)
+  const headerScrollRef = useRef(null)
   const bodyScrollRef = useRef(null)
   const syncSourceRef = useRef(null)
   const [scrollMetrics, setScrollMetrics] = useState({ clientWidth: 0, scrollWidth: 0 })
@@ -2958,12 +2793,14 @@ function HorizontalScrollFrame({ children, outerClassName = '', scrollerClassNam
 
   const showTopScrollbar = scrollMetrics.scrollWidth > scrollMetrics.clientWidth + 1
 
-  function syncScroll(source, targetRef, scrollLeft) {
-    if (!targetRef.current) return
-    if (syncSourceRef.current && syncSourceRef.current !== source) return
+  function syncScroll(sourceElement, scrollLeft) {
+    if (syncSourceRef.current && syncSourceRef.current !== sourceElement) return
 
-    syncSourceRef.current = source
-    targetRef.current.scrollLeft = scrollLeft
+    syncSourceRef.current = sourceElement
+    ;[topScrollRef.current, headerScrollRef.current, bodyScrollRef.current].forEach((element) => {
+      if (!element || element === sourceElement) return
+      element.scrollLeft = scrollLeft
+    })
     requestAnimationFrame(() => {
       syncSourceRef.current = null
     })
@@ -2974,19 +2811,14 @@ function HorizontalScrollFrame({ children, outerClassName = '', scrollerClassNam
       {showTopScrollbar && (
         <div
           ref={topScrollRef}
-          className="overflow-x-auto overflow-y-hidden border-b border-slate-200 bg-slate-50"
-          onScroll={(event) => syncScroll('top', bodyScrollRef, event.currentTarget.scrollLeft)}
+          className="sticky overflow-x-auto overflow-y-hidden border-b border-slate-200 bg-slate-50 shadow-[0_1px_0_rgba(148,163,184,0.18)]"
+          style={{ top: stickyTopOffset, zIndex: stickyZIndex + 1 }}
+          onScroll={(event) => syncScroll(topScrollRef.current, event.currentTarget.scrollLeft)}
         >
           <div style={{ width: scrollMetrics.scrollWidth, height: 16 }} />
         </div>
       )}
-      <div
-        ref={bodyScrollRef}
-        className={scrollerClassName}
-        onScroll={(event) => syncScroll('body', topScrollRef, event.currentTarget.scrollLeft)}
-      >
-        {children}
-      </div>
+      {children({ headerScrollRef, bodyScrollRef, onSyncScroll: syncScroll, scrollerClassName })}
     </div>
   )
 }
@@ -3025,6 +2857,9 @@ const TableView = memo(function TableView({
   sortConfig,
   onSortColumn,
   onOpenRowUpdates,
+  stickyTopOffset = APP_STICKY_TOP_OFFSET,
+  headerTopOffset = APP_STICKY_TOP_OFFSET + TABLE_TOP_SCROLLBAR_HEIGHT,
+  stickyZIndex = 12,
 }) {
   const columnFilters = useMemo(
     () =>
@@ -3055,320 +2890,345 @@ const TableView = memo(function TableView({
     window.addEventListener('mouseup', handleMouseUp)
   }
 
+  function renderHeaderCells() {
+    return (
+      <>
+        {visibleColumns.map((column) => (
+          <th
+            key={column.key}
+            draggable={!readOnly}
+            onDragStart={() => !readOnly && setDraggingColumnKey(column.key)}
+            onDragOver={(event) => {
+              if (!readOnly) event.preventDefault()
+            }}
+            onDrop={() => !readOnly && reorderColumns(draggingColumnKey, column.key)}
+            onDragEnd={() => setDraggingColumnKey(null)}
+            className={`relative border-b border-r border-slate-200 text-left font-semibold uppercase tracking-wide text-slate-500 last:border-r-0 ${textSizeClasses.header}`}
+            style={{ minWidth: column.minWidth, backgroundColor: 'var(--app-bg-soft)' }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className={`line-clamp-2 whitespace-normal break-words leading-tight ${draggingColumnKey === column.key ? 'opacity-40' : ''}`}
+              >
+                {column.label}
+                {sortConfig?.columnKey === column.key ? (
+                  <span className="ml-1 inline-block text-[10px] text-slate-400">
+                    {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                  </span>
+                ) : null}
+              </span>
+              {!readOnly && (
+                <button
+                  type="button"
+                  data-column-menu-trigger
+                  className="rounded px-1.5 py-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  onClick={(event) => toggleColumnMenu(event, `${menuScope}:${column.key}`)}
+                >
+                  ⋯
+                </button>
+              )}
+            </div>
+
+            {!readOnly && openColumnMenu === `${menuScope}:${column.key}` && (
+              <div
+                data-column-menu
+                className="z-[70] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-soft"
+                style={columnMenuStyle || undefined}
+              >
+                {(() => {
+                  const searchValue = columnFilterSearch[column.key] || ''
+                  const selectedValues = columnFilters[column.key]?.values || []
+                  const allFilterOptions = filterOptionsByColumn[column.key] || []
+                  const visibleFilterOptions = allFilterOptions.filter((option) =>
+                    String(option?.label || '').toLowerCase().includes(searchValue.toLowerCase()),
+                  )
+                  const allVisibleSelected =
+                    visibleFilterOptions.length > 0 &&
+                    visibleFilterOptions.every((option) => selectedValues.includes(option.token))
+
+                  return (
+                    <>
+                      <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-700">{column.label}</p>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Column actions</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                            onClick={() => renameColumn(column.key)}
+                            aria-label={`Rename ${column.label}`}
+                            title="Rename"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                            onClick={() =>
+                              setFilterValues(
+                                column.key,
+                                visibleFilterOptions.map((option) => option.token),
+                              )
+                            }
+                            aria-label={`Select all visible values for ${column.label}`}
+                            title="Select visible"
+                          >
+                            <CheckCheck size={14} />
+                          </button>
+                          {columnFilters[column.key] && (
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                              onClick={() => clearFiltersForColumn(column.key)}
+                              aria-label={`Clear filters for ${column.label}`}
+                              title="Clear filters"
+                            >
+                              <FilterX size={14} />
+                            </button>
+                          )}
+                          {canManageColumns && (
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700"
+                              onClick={() => requestColumnDelete(column.key)}
+                              aria-label={`Delete ${column.label}`}
+                              title="Delete"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-1 px-1 pb-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Column type</p>
+                        <select
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none"
+                          value={column.type}
+                          onChange={(event) => changeColumnType(column.key, event.target.value)}
+                        >
+                          {columnTypeOptions.map((type) => (
+                            <option key={type} value={type}>
+                              {type}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2 border-t border-slate-200 px-1 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sort rows</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            className={`inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition ${
+                              sortConfig?.columnKey === column.key && sortConfig?.direction === 'asc'
+                                ? 'border-sky-200 bg-sky-50 text-sky-700'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                            onClick={() => onSortColumn?.({ columnKey: column.key, direction: 'asc' })}
+                          >
+                            <ArrowUpAZ size={14} />
+                            Asc
+                          </button>
+                          <button
+                            type="button"
+                            className={`inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition ${
+                              sortConfig?.columnKey === column.key && sortConfig?.direction === 'desc'
+                                ? 'border-sky-200 bg-sky-50 text-sky-700'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                            onClick={() => onSortColumn?.({ columnKey: column.key, direction: 'desc' })}
+                          >
+                            <ArrowDownAZ size={14} />
+                            Desc
+                          </button>
+                        </div>
+                        {sortConfig?.columnKey === column.key && (
+                          <button
+                            type="button"
+                            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                            onClick={() => onSortColumn?.(null)}
+                          >
+                            Clear sort
+                          </button>
+                        )}
+                      </div>
+                      {column.type === 'status' && (
+                        <div className="mt-2 space-y-2 border-t border-slate-200 px-1 py-2">
+                          <button
+                            type="button"
+                            className="inline-flex w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                            onClick={() => openStatusManager(column.key)}
+                          >
+                            <span>Manage statuses & colors</span>
+                            <span className="text-slate-400">{getStatusOptionsForColumn(column).length}</span>
+                          </button>
+                        </div>
+                      )}
+                      <div className="mt-2 space-y-2 border-t border-slate-200 pt-2">
+                        <input
+                          type="search"
+                          value={searchValue}
+                          onChange={(event) =>
+                            setColumnFilterSearch((current) => ({
+                              ...current,
+                              [column.key]: event.target.value,
+                            }))
+                          }
+                          placeholder="Search values"
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none"
+                        />
+                        <label className="flex items-center gap-2 rounded-md px-1 py-1 text-xs font-medium text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={allVisibleSelected}
+                            onChange={() => {
+                              if (allVisibleSelected) {
+                                const visibleTokens = new Set(visibleFilterOptions.map((option) => option.token))
+                                setFilterValues(
+                                  column.key,
+                                  selectedValues.filter((token) => !visibleTokens.has(token)),
+                                )
+                                return
+                              }
+
+                              setFilterValues(column.key, [
+                                ...selectedValues,
+                                ...visibleFilterOptions.map((option) => option.token),
+                              ])
+                            }}
+                          />
+                          Select all visible
+                        </label>
+                        <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+                          {visibleFilterOptions.length === 0 ? (
+                            <p className="px-1 py-2 text-xs text-slate-500">No values match this search.</p>
+                          ) : (
+                            visibleFilterOptions.map((option) => (
+                              <label key={option.token} className="flex items-center gap-2 rounded-md px-1 py-1 text-xs text-slate-700 hover:bg-white">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedValues.includes(option.token)}
+                                  onChange={() => toggleFilterValue(column.key, option.token)}
+                                />
+                                <span className="min-w-0 break-words">{option.label}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+            )}
+
+            {!readOnly && (
+              <button
+                type="button"
+                aria-label={`Resize ${column.label}`}
+                onMouseDown={(event) => startColumnResize(event, column)}
+                className="absolute right-0 top-0 h-full w-2 cursor-col-resize rounded-r transition hover:bg-slate-200"
+              />
+            )}
+          </th>
+        ))}
+        {!readOnly && (
+          <th
+            className={`border-b border-slate-200 text-right font-semibold uppercase tracking-wide text-slate-500 ${textSizeClasses.header}`}
+            style={{ minWidth: 88, backgroundColor: 'var(--app-bg-soft)' }}
+          >
+            Action
+          </th>
+        )}
+      </>
+    )
+  }
+
   return (
     <HorizontalScrollFrame
       outerClassName="overflow-visible rounded-xl border border-slate-200 bg-white shadow-soft"
       scrollerClassName="overflow-x-auto overflow-y-visible"
+      stickyTopOffset={stickyTopOffset}
+      stickyZIndex={stickyZIndex}
     >
-      <table className={`min-w-full border-collapse ${textSizeClasses.table}`}>
-        <thead className="sticky top-0 z-10 bg-slate-50">
-          <tr>
-            {visibleColumns.map((column) => (
-              <th
-                key={column.key}
-                draggable={!readOnly}
-                onDragStart={() => !readOnly && setDraggingColumnKey(column.key)}
-                onDragOver={(event) => {
-                  if (!readOnly) event.preventDefault()
-                }}
-                onDrop={() => !readOnly && reorderColumns(draggingColumnKey, column.key)}
-                onDragEnd={() => setDraggingColumnKey(null)}
-                className={`relative border-b border-r border-slate-200 text-left font-semibold uppercase tracking-wide text-slate-500 last:border-r-0 ${textSizeClasses.header}`}
-                style={{ minWidth: column.minWidth }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span
-                    className={`line-clamp-2 whitespace-normal break-words leading-tight ${draggingColumnKey === column.key ? 'opacity-40' : ''}`}
-                  >
-                    {column.label}
-                    {sortConfig?.columnKey === column.key ? (
-                      <span className="ml-1 inline-block text-[10px] text-slate-400">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    ) : null}
-                  </span>
-                  {!readOnly && (
-                    <button
-                      type="button"
-                      data-column-menu-trigger
-                      className="rounded px-1.5 py-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                      onClick={(event) => toggleColumnMenu(event, `${menuScope}:${column.key}`)}
-                    >
-                      ⋯
-                    </button>
-                  )}
-                </div>
-
-                {!readOnly && openColumnMenu === `${menuScope}:${column.key}` && (
-                  <div
-                    data-column-menu
-                    className="z-[70] overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-soft"
-                    style={columnMenuStyle || undefined}
-                  >
-                    {(() => {
-                      const searchValue = columnFilterSearch[column.key] || ''
-                      const selectedValues = columnFilters[column.key]?.values || []
-                      const allFilterOptions = filterOptionsByColumn[column.key] || []
-                      const visibleFilterOptions = allFilterOptions.filter((option) =>
-                        String(option?.label || '').toLowerCase().includes(searchValue.toLowerCase()),
-                      )
-                      const allVisibleSelected =
-                        visibleFilterOptions.length > 0 &&
-                        visibleFilterOptions.every((option) => selectedValues.includes(option.token))
-
-                      return (
-                        <>
-                          <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-semibold text-slate-700">{column.label}</p>
-                              <p className="text-[10px] uppercase tracking-wide text-slate-400">Column actions</p>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
-                                onClick={() => renameColumn(column.key)}
-                                aria-label={`Rename ${column.label}`}
-                                title="Rename"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
-                                onClick={() =>
-                                  setFilterValues(
-                                    column.key,
-                                    visibleFilterOptions.map((option) => option.token),
-                                  )
-                                }
-                                aria-label={`Select all visible values for ${column.label}`}
-                                title="Select visible"
-                              >
-                                <CheckCheck size={14} />
-                              </button>
-                              {columnFilters[column.key] && (
-                                <button
-                                  type="button"
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
-                                  onClick={() => clearFiltersForColumn(column.key)}
-                                  aria-label={`Clear filters for ${column.label}`}
-                                  title="Clear filters"
-                                >
-                                  <FilterX size={14} />
-                                </button>
-                              )}
-                              {canManageColumns && (
-                                <button
-                                  type="button"
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 hover:text-rose-700"
-                                  onClick={() => requestColumnDelete(column.key)}
-                                  aria-label={`Delete ${column.label}`}
-                                  title="Delete"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <div className="space-y-1 px-1 pb-1">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Column type</p>
-                            <select
-                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none"
-                              value={column.type}
-                              onChange={(event) => changeColumnType(column.key, event.target.value)}
-                            >
-                              {columnTypeOptions.map((type) => (
-                                <option key={type} value={type}>
-                                  {type}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                    <div className="space-y-2 border-t border-slate-200 px-1 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sort rows</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          className={`inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition ${
-                            sortConfig?.columnKey === column.key && sortConfig?.direction === 'asc'
-                              ? 'border-sky-200 bg-sky-50 text-sky-700'
-                              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                          }`}
-                          onClick={() => onSortColumn?.({ columnKey: column.key, direction: 'asc' })}
-                        >
-                          <ArrowUpAZ size={14} />
-                          Asc
-                        </button>
-                        <button
-                          type="button"
-                          className={`inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition ${
-                            sortConfig?.columnKey === column.key && sortConfig?.direction === 'desc'
-                              ? 'border-sky-200 bg-sky-50 text-sky-700'
-                              : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                          }`}
-                          onClick={() => onSortColumn?.({ columnKey: column.key, direction: 'desc' })}
-                        >
-                          <ArrowDownAZ size={14} />
-                          Desc
-                        </button>
-                      </div>
-                      {sortConfig?.columnKey === column.key && (
-                        <button
-                          type="button"
-                          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-                          onClick={() => onSortColumn?.(null)}
-                        >
-                          Clear sort
-                        </button>
-                      )}
-                    </div>
-                    {column.type === 'status' && (
-                      <div className="mt-2 space-y-2 border-t border-slate-200 px-1 py-2">
-                        <button
-                          type="button"
-                          className="inline-flex w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-                          onClick={() => openStatusManager(column.key)}
-                        >
-                          <span>Manage statuses & colors</span>
-                          <span className="text-slate-400">{getStatusOptionsForColumn(column).length}</span>
-                        </button>
-                      </div>
-                    )}
-                    <div className="mt-2 space-y-2 border-t border-slate-200 pt-2">
-                      <input
-                        type="search"
-                        value={searchValue}
-                        onChange={(event) =>
-                          setColumnFilterSearch((current) => ({
-                            ...current,
-                            [column.key]: event.target.value,
-                          }))
-                        }
-                        placeholder="Search values"
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none"
-                      />
-                      <label className="flex items-center gap-2 rounded-md px-1 py-1 text-xs font-medium text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={allVisibleSelected}
-                          onChange={() => {
-                            if (allVisibleSelected) {
-                              const visibleTokens = new Set(visibleFilterOptions.map((option) => option.token))
-                              setFilterValues(
-                                column.key,
-                                selectedValues.filter((token) => !visibleTokens.has(token)),
-                              )
-                              return
-                            }
-
-                            setFilterValues(column.key, [
-                              ...selectedValues,
-                              ...visibleFilterOptions.map((option) => option.token),
-                            ])
-                          }}
-                        />
-                        Select all visible
-                      </label>
-                      <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
-                        {visibleFilterOptions.length === 0 ? (
-                          <p className="px-1 py-2 text-xs text-slate-500">No values match this search.</p>
+      {({ headerScrollRef, bodyScrollRef, onSyncScroll, scrollerClassName: syncedScrollerClassName }) => (
+        <>
+          <div
+            ref={headerScrollRef}
+            className="sticky overflow-hidden border-b border-slate-200 bg-slate-50"
+            style={{ top: headerTopOffset, zIndex: stickyZIndex }}
+          >
+            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%' }}>
+              <thead className="bg-slate-50">
+                <tr>{renderHeaderCells()}</tr>
+              </thead>
+            </table>
+          </div>
+          <div
+            ref={bodyScrollRef}
+            className={syncedScrollerClassName}
+            onScroll={(event) => onSyncScroll(bodyScrollRef.current, event.currentTarget.scrollLeft)}
+          >
+            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%' }}>
+              <tbody>
+                {filteredRows.map((row) => (
+                  <tr key={row.id} className="group transition hover:bg-sky-50/40">
+                    {visibleColumns.map((column) => (
+                      <td
+                        key={`${row.id}-${column.key}`}
+                        className={`border-b border-r border-slate-200 align-middle last:border-r-0 ${textSizeClasses.cell} ${getConditionalFormattingClassName(
+                          conditionalFormattingRules,
+                          column,
+                          row[column.key],
+                        )}`}
+                        onClick={() => {
+                          if (!readOnly && column.type !== 'updates') {
+                            setActiveCell({ rowId: row.id, columnKey: column.key })
+                          }
+                        }}
+                      >
+                        {!readOnly && column.type !== 'updates' && isEditing(row.id, column.key) ? (
+                          <EditableCell
+                            column={column}
+                            value={row[column.key]}
+                            rowId={row.id}
+                            textSize={textSize}
+                            textSizeClasses={textSizeClasses}
+                            onBlur={() => setActiveCell(null)}
+                            onChange={updateCell}
+                          />
                         ) : (
-                          visibleFilterOptions.map((option) => (
-                            <label key={option.token} className="flex items-center gap-2 rounded-md px-1 py-1 text-xs text-slate-700 hover:bg-white">
-                              <input
-                                type="checkbox"
-                                checked={selectedValues.includes(option.token)}
-                                onChange={() => toggleFilterValue(column.key, option.token)}
-                              />
-                              <span className="min-w-0 break-words">{option.label}</span>
-                            </label>
-                          ))
+                          <ReadOnlyCell
+                            column={column}
+                            value={row[column.key]}
+                            row={row}
+                            textSize={textSize}
+                            onOpenUpdates={onOpenRowUpdates}
+                          />
                         )}
-                      </div>
-                    </div>
-                        </>
-                      )
-                    })()}
-                  </div>
-                )}
-
-                {!readOnly && (
-                  <button
-                    type="button"
-                    aria-label={`Resize ${column.label}`}
-                    onMouseDown={(event) => startColumnResize(event, column)}
-                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize rounded-r transition hover:bg-slate-200"
-                  />
-                )}
-              </th>
-            ))}
-            {!readOnly && (
-              <th
-                className={`border-b border-slate-200 text-right font-semibold uppercase tracking-wide text-slate-500 ${textSizeClasses.header}`}
-                style={{ minWidth: 88 }}
-              >
-                Action
-              </th>
-            )}
-          </tr>
-        </thead>
-
-        <tbody>
-          {filteredRows.map((row) => (
-            <tr key={row.id} className="group transition hover:bg-sky-50/40">
-              {visibleColumns.map((column) => (
-                <td
-                  key={`${row.id}-${column.key}`}
-                  className={`border-b border-r border-slate-200 align-middle last:border-r-0 ${textSizeClasses.cell} ${getConditionalFormattingClassName(
-                    conditionalFormattingRules,
-                    column,
-                    row[column.key],
-                  )}`}
-                  onClick={() => {
-                    if (!readOnly && column.type !== 'updates') {
-                      setActiveCell({ rowId: row.id, columnKey: column.key })
-                    }
-                  }}
-                >
-                  {!readOnly && column.type !== 'updates' && isEditing(row.id, column.key) ? (
-                    <EditableCell
-                      column={column}
-                      value={row[column.key]}
-                      rowId={row.id}
-                      textSize={textSize}
-                      textSizeClasses={textSizeClasses}
-                      onBlur={() => setActiveCell(null)}
-                      onChange={updateCell}
-                    />
-                  ) : (
-                    <ReadOnlyCell
-                      column={column}
-                      value={row[column.key]}
-                      row={row}
-                      textSize={textSize}
-                      onOpenUpdates={onOpenRowUpdates}
-                    />
-                  )}
-                </td>
-              ))}
-              {!readOnly && (
-                <td className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}>
-                  <button
-                    type="button"
-                    onClick={() => deleteRow(row.id)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-                    aria-label={`Delete ${row.name || 'row'}`}
-                    title="Delete row"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                      </td>
+                    ))}
+                    {!readOnly && (
+                      <td className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}>
+                        <button
+                          type="button"
+                          onClick={() => deleteRow(row.id)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                          aria-label={`Delete ${row.name || 'row'}`}
+                          title="Delete row"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </HorizontalScrollFrame>
   )
 })
@@ -3423,7 +3283,10 @@ const GroupedTableView = memo(function GroupedTableView({
     <div className="space-y-4">
       {groupedRows.map((group) => (
         <section key={group.label} className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-soft">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div
+            className="sticky flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3"
+            style={{ top: APP_STICKY_TOP_OFFSET, zIndex: 12 }}
+          >
             <div
               draggable={groupedRows.length > 1}
               onDragStart={() => setDraggingGroupLabel(group.label)}
@@ -3479,7 +3342,10 @@ const GroupedTableView = memo(function GroupedTableView({
                     key={`${group.label}-${childGroup.label}`}
                     className="overflow-visible rounded-lg border border-slate-200/90 bg-slate-50/70"
                   >
-                    <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-3 py-2">
+                    <div
+                      className="sticky flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white/95 px-3 py-2 backdrop-blur-sm"
+                      style={{ top: APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT, zIndex: 13 }}
+                    >
                       <div className="min-w-0">
                         <p className={`truncate font-semibold text-slate-900 ${textSizeClasses.groupHeaderTitle}`}>
                           {childGroup.label}
@@ -3556,6 +3422,14 @@ const GroupedTableView = memo(function GroupedTableView({
                         sortConfig={sortConfig}
                         onSortColumn={onSortColumn}
                         onOpenRowUpdates={onOpenRowUpdates}
+                        stickyTopOffset={APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT + SUBGROUP_SECTION_HEADER_HEIGHT}
+                        headerTopOffset={
+                          APP_STICKY_TOP_OFFSET +
+                          GROUP_SECTION_HEADER_HEIGHT +
+                          SUBGROUP_SECTION_HEADER_HEIGHT +
+                          TABLE_TOP_SCROLLBAR_HEIGHT
+                        }
+                        stickyZIndex={14}
                       />
                     ) : (
                       <div className="px-3 py-2 text-xs text-slate-500">
@@ -3604,6 +3478,9 @@ const GroupedTableView = memo(function GroupedTableView({
                 sortConfig={sortConfig}
                 onSortColumn={onSortColumn}
                 onOpenRowUpdates={onOpenRowUpdates}
+                stickyTopOffset={APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT}
+                headerTopOffset={APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT + TABLE_TOP_SCROLLBAR_HEIGHT}
+                stickyZIndex={13}
               />
             )
           ) : (
@@ -4427,7 +4304,11 @@ function EditableCell({ column, value, rowId, textSizeClasses, onBlur, onChange 
       onBlur={() => commitValue(draftValue)}
       onChange={(event) => {
         const nextValue =
-          column.type === 'number' || column.type === 'currency' ? Number(event.target.value || 0) : event.target.value
+          column.type === 'number' || column.type === 'currency'
+            ? event.target.value === ''
+              ? ''
+              : Number(event.target.value)
+            : event.target.value
         setDraftValue(nextValue)
       }}
       onKeyDown={(event) => {
@@ -4447,6 +4328,7 @@ function EditableCell({ column, value, rowId, textSizeClasses, onBlur, onChange 
 function ReadOnlyCell({ column, value, row, textSize = 'medium', onOpenUpdates }) {
   const textClass = textSize === 'large' ? 'text-base' : textSize === 'small' ? 'text-xs' : 'text-sm'
   const wrappedTextClass = `block line-clamp-2 whitespace-normal break-words leading-snug ${textClass}`
+  const emailTextClass = `block line-clamp-2 break-all leading-snug ${textClass}`
   const ownerBadgeClass =
     textSize === 'large'
       ? 'h-8 w-8 text-xs'
@@ -4524,6 +4406,10 @@ function ReadOnlyCell({ column, value, row, textSize = 'medium', onOpenUpdates }
         {value}
       </a>
     )
+  }
+
+  if (isEmailColumn(column)) {
+    return <span className={`text-slate-700 ${emailTextClass}`}>{value || '—'}</span>
   }
 
   return <span className={`text-slate-700 ${wrappedTextClass}`}>{formatColumnValue(value, column.type)}</span>
