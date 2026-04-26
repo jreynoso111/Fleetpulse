@@ -10,6 +10,7 @@ const ChangePasswordPage = lazy(() => import('./pages/ChangePasswordPage'))
 const DashboardDetailPage = lazy(() => import('./pages/DashboardDetailPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LandingPage = lazy(() => import('./pages/LandingPage'))
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
 function PageFallback() {
@@ -74,6 +75,10 @@ function App() {
         <Route
           path="/change-password"
           element={isAuthenticated ? <ChangePasswordPage /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/reset-password"
+          element={isAuthenticated ? <ResetPasswordPage /> : <Navigate to="/" replace />}
         />
         <Route
           path="/app"

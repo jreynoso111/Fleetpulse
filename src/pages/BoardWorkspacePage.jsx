@@ -538,6 +538,7 @@ function BoardWorkspacePage() {
         rows={filteredBoardItems}
         loading={false}
         error={null}
+        currentUser={currentUser}
         readOnly={!canEditBoard}
         canManageColumns={canManageColumns}
         initialViewMode={boardViewPreferences?.preferredView || board.preferredView || settings.defaultBoardView}
@@ -546,6 +547,7 @@ function BoardWorkspacePage() {
         initialSortConfig={boardViewPreferences?.sortConfig || null}
         initialGroupedSectionCollapsedByField={boardViewPreferences?.groupedSectionCollapsedByField || {}}
         initialGroupedSectionOrderByField={boardViewPreferences?.groupedSectionOrderByField || {}}
+        initialGroupedSectionColorByField={boardViewPreferences?.groupedSectionColorByField || {}}
         initialGanttGroupByKey={boardViewPreferences?.ganttGroupByKey || ''}
         initialGanttStartKey={boardViewPreferences?.ganttStartKey || ''}
         initialGanttEndKey={boardViewPreferences?.ganttEndKey || ''}

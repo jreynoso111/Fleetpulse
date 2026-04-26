@@ -63,6 +63,26 @@ function normalizeAutomationValue(value, columnType) {
   return String(value).trim().toLowerCase()
 }
 
+function getItemStatus(item) {
+  return item.status || item.shipment_status || 'Working on it'
+}
+
+function getItemDueDate(item) {
+  return parseAutomationDate(item.due_date || item.work_date || item.shipping_date)
+}
+
+function isDoneItem(item) {
+  return getItemStatus(item) === 'Done'
+}
+
+function isBlockedItem(item) {
+  return getItemStatus(item) === 'Stuck' || item.blocked === true
+}
+
+function getCompletionRate(completedItems, totalItems) {
+  return totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0
+}
+
 function matchesAutomationRule(item, board, config) {
   const targetColumn = board.columns.find((column) => column.key === config.columnKey)
   if (!targetColumn) return false
@@ -424,21 +444,52 @@ export function PulseWorkspaceProvider({ children }) {
   )
 
   const allItems = useMemo(
-    () => boards.flatMap((board) => board.items.map((item) => ({ ...item, boardId: board.id }))),
+    () =>
+      boards.flatMap((board) =>
+        board.items.map((item) => ({
+          ...item,
+          boardId: board.id,
+          boardName: board.name,
+          boardSlug: board.slug,
+        })),
+      ),
     [boards],
   )
 
   const dashboardData = useMemo(() => {
     const totalItems = allItems.length
-    const completedItems = allItems.filter((item) => item.status === 'Done' || item.shipment_status === 'Done').length
-    const blockedItems = allItems.filter((item) => item.status === 'Stuck' || item.shipment_status === 'Stuck' || item.blocked).length
+    const completedItems = allItems.filter(isDoneItem).length
+    const activeItems = allItems.filter((item) => !isDoneItem(item)).length
+    const blockedItems = allItems.filter(isBlockedItem).length
     const activeAutomations = visibleAutomations.filter((automation) => automation.enabled).length
     const recentDays = getRecentDateKeys(allItems, 7)
     const recentWeeks = getRecentWeekKeys(allItems, 6)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const nextWeek = new Date(today)
+    nextWeek.setDate(today.getDate() + 7)
+    const completionRate = getCompletionRate(completedItems, totalItems)
+
+    const overdueItems = allItems.filter((item) => {
+      if (isDoneItem(item)) return false
+      const dueDate = getItemDueDate(item)
+      if (!dueDate) return false
+      dueDate.setHours(0, 0, 0, 0)
+      return dueDate < today
+    })
+
+    const dueSoonItems = allItems.filter((item) => {
+      if (isDoneItem(item)) return false
+      const dueDate = getItemDueDate(item)
+      if (!dueDate) return false
+      dueDate.setHours(0, 0, 0, 0)
+      return dueDate >= today && dueDate <= nextWeek
+    })
+    const overdueItemIds = new Set(overdueItems.map((item) => item.id))
+    const dueSoonItemIds = new Set(dueSoonItems.map((item) => item.id))
 
     const completedByDay = allItems.reduce((accumulator, item) => {
-      const status = item.status || item.shipment_status
-      if (status !== 'Done') return accumulator
+      if (!isDoneItem(item)) return accumulator
       const key = formatDateKey(getTimelineValue(item))
       accumulator[key] = (accumulator[key] || 0) + 1
       return accumulator
@@ -456,7 +507,7 @@ export function PulseWorkspaceProvider({ children }) {
       const start = new Date(date)
       start.setDate(date.getDate() - date.getDay())
       const weekKey = formatDateKey(start)
-      const status = item.status || item.shipment_status
+      const status = getItemStatus(item)
 
       if (!accumulator[weekKey]) accumulator[weekKey] = { active: 0, completed: 0 }
       if (status === 'Done') accumulator[weekKey].completed += 1
@@ -472,7 +523,7 @@ export function PulseWorkspaceProvider({ children }) {
 
     const totals = allItems.reduce(
       (accumulator, item) => {
-        const status = item.status || item.shipment_status || 'Working on it'
+        const status = getItemStatus(item)
         accumulator[status] = (accumulator[status] || 0) + 1
         return accumulator
       },
@@ -485,18 +536,116 @@ export function PulseWorkspaceProvider({ children }) {
       { name: 'Stuck', value: totals.Stuck, color: '#ef4444' },
     ].filter((item) => item.value > 0)
 
+    const boardHealth = boards
+      .map((board) => {
+        const boardItems = board.items || []
+        const boardTotal = boardItems.length
+        const boardCompleted = boardItems.filter(isDoneItem).length
+        const boardBlocked = boardItems.filter(isBlockedItem).length
+        const boardOverdue = boardItems.filter((item) => {
+          if (isDoneItem(item)) return false
+          const dueDate = getItemDueDate(item)
+          if (!dueDate) return false
+          dueDate.setHours(0, 0, 0, 0)
+          return dueDate < today
+        }).length
+        const boardDueSoon = boardItems.filter((item) => {
+          if (isDoneItem(item)) return false
+          const dueDate = getItemDueDate(item)
+          if (!dueDate) return false
+          dueDate.setHours(0, 0, 0, 0)
+          return dueDate >= today && dueDate <= nextWeek
+        }).length
+        const rate = getCompletionRate(boardCompleted, boardTotal)
+        const riskScore = boardBlocked * 3 + boardOverdue * 2 + boardDueSoon
+
+        return {
+          id: board.id,
+          name: board.name,
+          slug: board.slug,
+          total: boardTotal,
+          active: boardTotal - boardCompleted,
+          completed: boardCompleted,
+          blocked: boardBlocked,
+          overdue: boardOverdue,
+          dueSoon: boardDueSoon,
+          completionRate: rate,
+          riskScore,
+        }
+      })
+      .sort((left, right) => right.riskScore - left.riskScore || right.active - left.active)
+
+    const ownerWorkload = Object.values(
+      allItems.reduce((accumulator, item) => {
+        const owner = item.owner || item.point_of_contact || item.poc || 'Unassigned'
+        if (!accumulator[owner]) {
+          accumulator[owner] = { owner, active: 0, completed: 0, blocked: 0, overdue: 0 }
+        }
+        if (isDoneItem(item)) accumulator[owner].completed += 1
+        else accumulator[owner].active += 1
+        if (isBlockedItem(item)) accumulator[owner].blocked += 1
+        if (overdueItemIds.has(item.id)) accumulator[owner].overdue += 1
+        return accumulator
+      }, {}),
+    )
+      .sort((left, right) => right.active - left.active || right.blocked - left.blocked)
+      .slice(0, 7)
+
+    const priorityItems = allItems
+      .filter((item) => !isDoneItem(item) && (isBlockedItem(item) || overdueItemIds.has(item.id) || dueSoonItemIds.has(item.id)))
+      .map((item) => {
+        const dueDate = getItemDueDate(item)
+        const dueTime = dueDate?.getTime() ?? Number.MAX_SAFE_INTEGER
+        return {
+          ...item,
+          status: getItemStatus(item),
+          dueDate: dueDate ? formatDateKey(dueDate) : '',
+          riskLabel: isBlockedItem(item)
+            ? 'Blocked'
+            : overdueItemIds.has(item.id)
+              ? 'Overdue'
+              : 'Due soon',
+          riskScore: (isBlockedItem(item) ? 100 : 0) + (overdueItemIds.has(item.id) ? 50 : 0) - dueTime / 100000000,
+        }
+      })
+      .sort((left, right) => right.riskScore - left.riskScore)
+      .slice(0, 8)
+
+    const recentCompleted = allItems
+      .filter(isDoneItem)
+      .map((item) => ({
+        ...item,
+        completedDate: formatDateKey(getTimelineValue(item)),
+      }))
+      .sort((left, right) => new Date(right.completedDate).getTime() - new Date(left.completedDate).getTime())
+      .slice(0, 5)
+
     return {
       kpis: [
-        { key: 'total-items', label: 'Total items', value: totalItems, tone: 'text-blue-600' },
-        { key: 'completed', label: 'Completed', value: completedItems, tone: 'text-emerald-600' },
-        { key: 'blocked', label: 'Blocked', value: blockedItems, tone: 'text-rose-600' },
-        { key: 'active-automations', label: 'Active automations', value: activeAutomations, tone: 'text-amber-600' },
+        { key: 'total-items', label: 'Total items', value: totalItems, helper: `${activeItems} active`, tone: 'text-blue-600' },
+        { key: 'completed', label: 'Completion rate', value: `${completionRate}%`, helper: `${completedItems} done`, tone: 'text-emerald-600' },
+        { key: 'blocked', label: 'Blocked', value: blockedItems, helper: 'Needs action', tone: 'text-rose-600' },
+        { key: 'overdue', label: 'Overdue', value: overdueItems.length, helper: 'Past due date', tone: 'text-orange-600' },
+        { key: 'due-soon', label: 'Due this week', value: dueSoonItems.length, helper: 'Next 7 days', tone: 'text-sky-600' },
+        { key: 'active-automations', label: 'Active automations', value: activeAutomations, helper: `${visibleAutomations.length} total`, tone: 'text-amber-600' },
       ],
       weeklyThroughput,
       trendData,
       pieData,
+      totalItems,
+      completedItems,
+      activeItems,
+      blockedItems,
+      overdueItems,
+      dueSoonItems,
+      activeAutomations,
+      completionRate,
+      boardHealth,
+      ownerWorkload,
+      priorityItems,
+      recentCompleted,
     }
-  }, [allItems, visibleAutomations])
+  }, [allItems, boards, visibleAutomations])
 
   const shellData = useMemo(
     () => ({
@@ -703,6 +852,19 @@ export function PulseWorkspaceProvider({ children }) {
       },
       async logout() {
         const { error } = await supabase.auth.signOut()
+        if (error) throw new Error(error.message)
+      },
+      async requestPasswordReset(email) {
+        const normalizedEmail = String(email || '').trim().toLowerCase()
+        if (!normalizedEmail) {
+          throw new Error('Email is required.')
+        }
+
+        const redirectTo = `${window.location.origin}/reset-password`
+        const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+          redirectTo,
+        })
+
         if (error) throw new Error(error.message)
       },
       async changePassword(nextPassword) {
@@ -966,6 +1128,7 @@ export function PulseWorkspaceProvider({ children }) {
               : null,
           groupedSectionCollapsedByField: storedPreferences.groupedSectionCollapsedByField || {},
           groupedSectionOrderByField: storedPreferences.groupedSectionOrderByField || {},
+          groupedSectionColorByField: storedPreferences.groupedSectionColorByField || {},
           ganttGroupByKey:
             typeof storedPreferences.ganttGroupByKey === 'string' ? storedPreferences.ganttGroupByKey : '',
           ganttStartKey:

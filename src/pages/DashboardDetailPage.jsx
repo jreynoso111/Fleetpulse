@@ -15,6 +15,14 @@ const metricConfig = {
     title: 'Blocked items',
     description: 'Items currently stuck or explicitly flagged as blocked.',
   },
+  overdue: {
+    title: 'Overdue items',
+    description: 'Active items with a due date, work date, or shipping date before today.',
+  },
+  'due-soon': {
+    title: 'Due this week',
+    description: 'Active items with a due date, work date, or shipping date in the next seven days.',
+  },
   'active-automations': {
     title: 'Active automations',
     description: 'Automations that are currently enabled in your workspace.',
@@ -37,16 +45,45 @@ function DashboardDetailPage() {
       boardSlug: board.slug,
     })),
   )
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const nextWeek = new Date(today)
+  nextWeek.setDate(today.getDate() + 7)
+
+  function getStatus(item) {
+    return item.status || item.shipment_status || 'Working on it'
+  }
+
+  function getDueDate(item) {
+    const rawDate = item.due_date || item.work_date || item.shipping_date
+    if (!rawDate) return null
+    const parsed = new Date(rawDate)
+    if (Number.isNaN(parsed.getTime())) return null
+    parsed.setHours(0, 0, 0, 0)
+    return parsed
+  }
 
   const metric = metricConfig[metricKey]
   const rows =
     metricKey === 'total-items'
       ? itemRows
       : metricKey === 'completed'
-        ? itemRows.filter((item) => (item.status || item.shipment_status) === 'Done')
+        ? itemRows.filter((item) => getStatus(item) === 'Done')
         : metricKey === 'blocked'
-          ? itemRows.filter((item) => (item.status || item.shipment_status) === 'Stuck' || item.blocked)
-          : automations.filter((automation) => automation.enabled)
+          ? itemRows.filter((item) => getStatus(item) === 'Stuck' || item.blocked)
+          : metricKey === 'overdue'
+            ? itemRows.filter((item) => {
+                if (getStatus(item) === 'Done') return false
+                const dueDate = getDueDate(item)
+                return dueDate ? dueDate < today : false
+              })
+            : metricKey === 'due-soon'
+              ? itemRows.filter((item) => {
+                  if (getStatus(item) === 'Done') return false
+                  const dueDate = getDueDate(item)
+                  return dueDate ? dueDate >= today && dueDate <= nextWeek : false
+                })
+              : automations.filter((automation) => automation.enabled)
 
   return (
     <section className="space-y-5">
@@ -110,7 +147,7 @@ function DashboardDetailPage() {
                   <p className="mt-1 text-sm text-slate-600">{item.boardName}</p>
                 </div>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  {item.status || item.shipment_status || 'No status'}
+                  {getStatus(item)}
                 </span>
               </div>
 

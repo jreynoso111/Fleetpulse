@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDownAZ, ArrowUpAZ, CheckCheck, ChevronDown, ChevronUp, FilterX, GripVertical, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowDownAZ, ArrowUpAZ, CheckCheck, ChevronDown, ChevronUp, Download, FilterX, GripVertical, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { statusColors, statusOptions } from '../data/boardMock'
 
@@ -6,11 +6,11 @@ const columnTypeOptions = ['text', 'number', 'currency', 'date', 'status', 'bool
 const textSizeOptions = ['small', 'medium', 'large']
 const COLUMN_MIN_WIDTH = 72
 const COLUMN_MENU_WIDTH = 272
+const ACTION_COLUMN_WIDTH = 88
 const VIEWPORT_MENU_PADDING = 12
 const COLUMN_MENU_MAX_HEIGHT = 420
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const APP_STICKY_TOP_OFFSET = 76
-const TABLE_TOP_SCROLLBAR_HEIGHT = 17
 const GROUP_SECTION_HEADER_HEIGHT = 57
 const SUBGROUP_SECTION_HEADER_HEIGHT = 45
 const conditionalOperatorOptions = [
@@ -45,6 +45,14 @@ const conditionalBackgroundOptions = [
   { value: 'bg-emerald-50', label: 'Emerald' },
   { value: 'bg-sky-50', label: 'Sky' },
   { value: 'bg-violet-50', label: 'Violet' },
+]
+const groupedSectionColorOptions = [
+  { id: 'slate', accent: '#94a3b8', header: '#f8fafc', section: '#ffffff', nested: '#f8fafc' },
+  { id: 'sky', accent: '#38bdf8', header: '#f0f9ff', section: '#f8fcff', nested: '#f0f9ff' },
+  { id: 'emerald', accent: '#34d399', header: '#ecfdf5', section: '#f8fffb', nested: '#ecfdf5' },
+  { id: 'amber', accent: '#f59e0b', header: '#fffbeb', section: '#fffdf6', nested: '#fffbeb' },
+  { id: 'rose', accent: '#fb7185', header: '#fff1f2', section: '#fffafa', nested: '#fff1f2' },
+  { id: 'violet', accent: '#a78bfa', header: '#f5f3ff', section: '#fcfbff', nested: '#f5f3ff' },
 ]
 const conditionalFontFamilyOptions = [
   { value: '', label: 'Default' },
@@ -456,15 +464,18 @@ function isSameCellValue(previousValue, nextValue) {
   return JSON.stringify(previousValue ?? '') === JSON.stringify(nextValue ?? '')
 }
 
-function createRowUpdateEntry(changes) {
+function createRowUpdateEntry(changes, editor) {
   return {
     id: createConditionalRuleId(),
     editedAt: new Date().toISOString(),
+    editedById: editor?.id || '',
+    editedByName: editor?.name || editor?.email || '',
+    editedByEmail: editor?.email || '',
     changes,
   }
 }
 
-function applyRowUpdateHistory(previousRows, nextRows, columns) {
+function applyRowUpdateHistory(previousRows, nextRows, columns, editor = null) {
   const updateColumns = getUpdateColumns(columns)
   if (updateColumns.length === 0) return nextRows
 
@@ -503,7 +514,7 @@ function applyRowUpdateHistory(previousRows, nextRows, columns) {
       }))
 
     const nextHistory = changes.length
-      ? [createRowUpdateEntry(changes), ...previousHistory].slice(0, 25)
+      ? [createRowUpdateEntry(changes, editor), ...previousHistory].slice(0, 25)
       : previousHistory
 
     const nextTimestamp = nextHistory[0]?.editedAt || ''
@@ -558,6 +569,15 @@ function groupRowsByKey(rows, groupKey) {
 
 function getNestedGroupCollapseKey(parentLabel, childLabel) {
   return `${String(parentLabel)}::${String(childLabel)}`
+}
+
+function getGroupedRowValue(groupLabel) {
+  return groupLabel === 'Uncategorized' ? '' : groupLabel
+}
+
+function toCsvCell(value) {
+  const normalizedValue = value == null ? '' : String(value)
+  return /[",\n]/.test(normalizedValue) ? `"${normalizedValue.replace(/"/g, '""')}"` : normalizedValue
 }
 
 function getValidDate(value) {
@@ -697,6 +717,7 @@ function BoardTable({
   loading = false,
   error = null,
   onRetry,
+  currentUser = null,
   readOnly = false,
   canManageColumns = !readOnly,
   initialViewMode = 'table',
@@ -705,6 +726,7 @@ function BoardTable({
   initialSortConfig = null,
   initialGroupedSectionCollapsedByField = {},
   initialGroupedSectionOrderByField = {},
+  initialGroupedSectionColorByField = {},
   initialGanttGroupByKey = '',
   initialGanttStartKey = '',
   initialGanttEndKey = '',
@@ -742,6 +764,7 @@ function BoardTable({
   const [sortConfig, setSortConfig] = useState(initialSortConfig)
   const [groupedSectionCollapsedByField, setGroupedSectionCollapsedByField] = useState(initialGroupedSectionCollapsedByField)
   const [groupedSectionOrderByField, setGroupedSectionOrderByField] = useState(initialGroupedSectionOrderByField)
+  const [groupedSectionColorByField, setGroupedSectionColorByField] = useState(initialGroupedSectionColorByField)
   const [openKanbanConfig, setOpenKanbanConfig] = useState(false)
   const [openGanttConfig, setOpenGanttConfig] = useState(false)
   const [openColumnVisibility, setOpenColumnVisibility] = useState(false)
@@ -814,6 +837,10 @@ function BoardTable({
   useEffect(() => {
     setGroupedSectionOrderByField(initialGroupedSectionOrderByField)
   }, [initialGroupedSectionOrderByField])
+
+  useEffect(() => {
+    setGroupedSectionColorByField(initialGroupedSectionColorByField)
+  }, [initialGroupedSectionColorByField])
 
   useEffect(() => {
     setKanbanCollapsedLaneIdsByField(initialKanbanCollapsedLaneIdsByField)
@@ -1192,6 +1219,14 @@ function BoardTable({
     () => groupedSectionOrderByField[groupByKey] || [],
     [groupByKey, groupedSectionOrderByField],
   )
+  const groupedSectionColors = useMemo(
+    () => groupedSectionColorByField[groupByKey] || {},
+    [groupByKey, groupedSectionColorByField],
+  )
+  const nestedGroupedSectionColors = useMemo(
+    () => (nestedGroupFieldKey ? groupedSectionColorByField[nestedGroupFieldKey] || {} : {}),
+    [groupedSectionColorByField, nestedGroupFieldKey],
+  )
   const collapsedNestedGroupLabels = useMemo(
     () => (nestedGroupFieldKey ? groupedSectionCollapsedByField[nestedGroupFieldKey] || [] : []),
     [groupedSectionCollapsedByField, nestedGroupFieldKey],
@@ -1327,11 +1362,12 @@ function BoardTable({
         currentRows,
         currentRows.map((row) => (row.id === rowId ? { ...row, [columnKey]: value } : row)),
         boardColumns,
+        currentUser,
       )
       pushBoardChange(boardColumns, nextRows)
       return nextRows
     })
-  }, [boardColumns, pushBoardChange])
+  }, [boardColumns, currentUser, pushBoardChange])
 
   const updateRowValues = useCallback(
     (rowId, updates) => {
@@ -1340,12 +1376,13 @@ function BoardTable({
           currentRows,
           currentRows.map((row) => (row.id === rowId ? { ...row, ...updates } : row)),
           boardColumns,
+          currentUser,
         )
         pushBoardChange(boardColumns, nextRows)
         return nextRows
       })
     },
-    [boardColumns, pushBoardChange],
+    [boardColumns, currentUser, pushBoardChange],
   )
 
   const addRow = useCallback(() => {
@@ -1391,53 +1428,46 @@ function BoardTable({
   }, [boardColumns, nextItemNumber, pushBoardChange])
 
   const addGroupedRow = useCallback(
-    (groupValue) => {
-      const today = new Date()
-      const defaultStartDate = formatDateInputValue(today)
-      const defaultDueDate = formatDateInputValue(new Date(today.getTime() + 1000 * 60 * 60 * 24 * 3))
-
+    (groupValue, secondaryGroupValue = null) => {
       const rowValues = boardColumns.reduce((accumulator, column) => {
-        if (column.key === 'name') {
-          accumulator[column.key] = `New task ${nextItemNumber}`
-          return accumulator
-        }
-
-        if (column.key === 'owner') {
-          accumulator[column.key] = 'Unassigned'
-          return accumulator
-        }
-
         if (column.key === groupByKey) {
-          accumulator[column.key] = groupValue
+          accumulator[column.key] = getGroupedRowValue(groupValue)
           return accumulator
         }
 
-        if (column.key === 'category') {
-          accumulator[column.key] = 'General'
+        if (secondaryGroupValue != null && column.key === secondaryGroupByKey) {
+          accumulator[column.key] = getGroupedRowValue(secondaryGroupValue)
           return accumulator
         }
 
-        if (column.key === 'start_date') {
-          accumulator[column.key] = defaultStartDate
-          return accumulator
-        }
-
-        if (column.key === 'due_date') {
-          accumulator[column.key] = defaultDueDate
-          return accumulator
-        }
-
-        accumulator[column.key] = getDefaultValue(column.type, column)
+        accumulator[column.key] = ''
         return accumulator
       }, {})
 
       setBoardRows((currentRows) => {
-        const nextRows = [{ id: createRowId(), ...rowValues }, ...currentRows]
+        const newRow = { id: createRowId(), ...rowValues }
+        const normalizedGroupValue = getGroupedRowValue(groupValue)
+        const normalizedSecondaryGroupValue = secondaryGroupValue == null ? null : getGroupedRowValue(secondaryGroupValue)
+        const insertionIndex = currentRows.findIndex((row) => {
+          const primaryMatches = String(row[groupByKey] || '') === String(normalizedGroupValue || '')
+          if (!primaryMatches) return false
+          if (normalizedSecondaryGroupValue == null || !secondaryGroupByKey) return true
+          return String(row[secondaryGroupByKey] || '') === String(normalizedSecondaryGroupValue || '')
+        })
+        const nextRows =
+          insertionIndex === -1
+            ? [newRow, ...currentRows]
+            : [
+                ...currentRows.slice(0, insertionIndex),
+                newRow,
+                ...currentRows.slice(insertionIndex),
+              ]
+
         pushBoardChange(boardColumns, nextRows)
         return nextRows
       })
     },
-    [boardColumns, groupByKey, nextItemNumber, pushBoardChange],
+    [boardColumns, groupByKey, pushBoardChange, secondaryGroupByKey],
   )
 
   const addColumn = useCallback(() => {
@@ -1799,13 +1829,14 @@ function BoardTable({
               : row,
           ),
           boardColumns,
+          currentUser,
         )
         pushBoardChange(boardColumns, nextRows)
         return nextRows
       })
       setDraggingId(null)
     },
-    [boardColumns, draggingId, kanbanColumn, pushBoardChange, readOnly],
+    [boardColumns, currentUser, draggingId, kanbanColumn, pushBoardChange, readOnly],
   )
 
   const handleKanbanGroupChange = useCallback(
@@ -1992,6 +2023,31 @@ function BoardTable({
       })
     },
     [nestedGroupFieldKey, persistViewConfig],
+  )
+
+  const cycleGroupedSectionColor = useCallback(
+    (fieldKey, sectionLabel) => {
+      if (!fieldKey || !sectionLabel) return
+
+      setGroupedSectionColorByField((current) => {
+        const currentColorsForField = current[fieldKey] || {}
+        const currentColorId = currentColorsForField[sectionLabel] || groupedSectionColorOptions[0].id
+        const currentIndex = groupedSectionColorOptions.findIndex((option) => option.id === currentColorId)
+        const nextColor = groupedSectionColorOptions[(currentIndex + 1) % groupedSectionColorOptions.length]
+        const nextValue = {
+          ...current,
+          [fieldKey]: {
+            ...currentColorsForField,
+            [sectionLabel]: nextColor.id,
+          },
+        }
+
+        persistViewConfig({ groupedSectionColorByField: nextValue })
+
+        return nextValue
+      })
+    },
+    [persistViewConfig],
   )
 
   const deleteRow = useCallback(
@@ -2567,6 +2623,10 @@ function BoardTable({
             textSizeClasses={textSizeClasses}
             collapsedGroupLabels={collapsedGroupLabels}
             groupedSectionOrder={groupedSectionOrder}
+            groupByKey={groupByKey}
+            groupedSectionColors={groupedSectionColors}
+            nestedGroupFieldKey={nestedGroupFieldKey}
+            nestedGroupedSectionColors={nestedGroupedSectionColors}
             draggingGroupLabel={draggingGroupLabel}
             setDraggingGroupLabel={setDraggingGroupLabel}
             secondaryGroupByKey={secondaryGroupByKey}
@@ -2576,6 +2636,7 @@ function BoardTable({
             toggleGroupedSection={toggleGroupedSection}
             collapsedNestedGroupLabels={collapsedNestedGroupLabels}
             toggleNestedGroupedSection={toggleNestedGroupedSection}
+            cycleGroupedSectionColor={cycleGroupedSectionColor}
             reorderGroupedSections={reorderGroupedSections}
             onAddRowToGroup={addGroupedRow}
             conditionalFormattingRules={conditionalFormattingRules}
@@ -2868,6 +2929,32 @@ const TableView = memo(function TableView({
       }, {}),
     [filters, visibleColumns],
   )
+  const tableColumnsWidth = useMemo(
+    () =>
+      visibleColumns.reduce((totalWidth, column) => totalWidth + (column.minWidth || 140), readOnly ? 0 : ACTION_COLUMN_WIDTH),
+    [readOnly, visibleColumns],
+  )
+  const tableLayoutStyle = useMemo(
+    () => ({
+      width: tableColumnsWidth,
+      minWidth: '100%',
+      tableLayout: 'fixed',
+    }),
+    [tableColumnsWidth],
+  )
+
+  function renderColumnWidths() {
+    return (
+      <colgroup>
+        {visibleColumns.map((column) => {
+          const columnWidth = column.minWidth || 140
+
+          return <col key={column.key} style={{ width: columnWidth, minWidth: columnWidth }} />
+        })}
+        {!readOnly && <col style={{ width: ACTION_COLUMN_WIDTH, minWidth: ACTION_COLUMN_WIDTH }} />}
+      </colgroup>
+    )
+  }
 
   function startColumnResize(event, column) {
     event.preventDefault()
@@ -2889,7 +2976,7 @@ const TableView = memo(function TableView({
     window.addEventListener('mouseup', handleMouseUp)
   }
 
-  function renderHeaderCells(headerTopOffset) {
+  function renderHeaderCells() {
     return (
       <>
         {visibleColumns.map((column) => (
@@ -2903,10 +2990,7 @@ const TableView = memo(function TableView({
             onDrop={() => !readOnly && reorderColumns(draggingColumnKey, column.key)}
             onDragEnd={() => setDraggingColumnKey(null)}
             className={`relative border-b border-r border-slate-200 text-left font-semibold uppercase tracking-wide text-slate-500 last:border-r-0 ${textSizeClasses.header}`}
-            style={{
-              minWidth: column.minWidth,
-              backgroundColor: 'var(--app-bg-soft)',
-            }}
+            style={{ width: column.minWidth || 140, minWidth: column.minWidth || 140, backgroundColor: 'var(--app-bg-soft)' }}
           >
             <div className="flex items-center justify-between gap-2">
               <span
@@ -3138,26 +3222,12 @@ const TableView = memo(function TableView({
         {!readOnly && (
           <th
             className={`border-b border-slate-200 text-right font-semibold uppercase tracking-wide text-slate-500 ${textSizeClasses.header}`}
-            style={{
-              minWidth: 88,
-              backgroundColor: 'var(--app-bg-soft)',
-            }}
+            style={{ width: ACTION_COLUMN_WIDTH, minWidth: ACTION_COLUMN_WIDTH, backgroundColor: 'var(--app-bg-soft)' }}
           >
             Action
           </th>
         )}
       </>
-    )
-  }
-
-  function renderColumnGroup() {
-    return (
-      <colgroup>
-        {visibleColumns.map((column) => (
-          <col key={column.key} style={{ width: column.minWidth, minWidth: column.minWidth }} />
-        ))}
-        {!readOnly && <col style={{ width: 88, minWidth: 88 }} />}
-      </colgroup>
     )
   }
 
@@ -3175,15 +3245,18 @@ const TableView = memo(function TableView({
             className={syncedScrollerClassName}
             onScroll={(event) => onSyncScroll(bodyScrollRef.current, event.currentTarget.scrollLeft)}
           >
-            <table className={`border-collapse ${textSizeClasses.table}`} style={{ width: 'max-content', minWidth: '100%', tableLayout: 'fixed' }}>
-              {renderColumnGroup()}
+            <table className={`border-collapse ${textSizeClasses.table}`} style={tableLayoutStyle}>
+              {renderColumnWidths()}
               <thead className="bg-slate-50">
                 <tr>{renderHeaderCells()}</tr>
               </thead>
               <tbody>
                 {filteredRows.map((row) => (
                   <tr key={row.id} className="group transition hover:bg-sky-50/40">
-                    {visibleColumns.map((column) => (
+                    {visibleColumns.map((column) => {
+                      const columnWidth = column.minWidth || 140
+
+                      return (
                       <td
                         key={`${row.id}-${column.key}`}
                         className={`border-b border-r border-slate-200 align-middle last:border-r-0 ${textSizeClasses.cell} ${getConditionalFormattingClassName(
@@ -3191,6 +3264,7 @@ const TableView = memo(function TableView({
                           column,
                           row[column.key],
                         )}`}
+                        style={{ width: columnWidth, minWidth: columnWidth }}
                         onClick={() => {
                           if (!readOnly && column.type !== 'updates') {
                             setActiveCell({ rowId: row.id, columnKey: column.key })
@@ -3217,9 +3291,13 @@ const TableView = memo(function TableView({
                           />
                         )}
                       </td>
-                    ))}
+                      )
+                    })}
                     {!readOnly && (
-                      <td className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}>
+                      <td
+                        className={`border-b border-slate-200 px-3 align-middle text-right ${textSizeClasses.cell}`}
+                        style={{ width: ACTION_COLUMN_WIDTH, minWidth: ACTION_COLUMN_WIDTH }}
+                      >
                         <button
                           type="button"
                           onClick={() => deleteRow(row.id)}
@@ -3274,6 +3352,10 @@ const GroupedTableView = memo(function GroupedTableView({
   textSize,
   textSizeClasses,
   collapsedGroupLabels = [],
+  groupByKey = '',
+  groupedSectionColors = {},
+  nestedGroupFieldKey = '',
+  nestedGroupedSectionColors = {},
   draggingGroupLabel,
   setDraggingGroupLabel,
   secondaryGroupByKey = '',
@@ -3281,6 +3363,7 @@ const GroupedTableView = memo(function GroupedTableView({
   toggleGroupedSection,
   collapsedNestedGroupLabels = [],
   toggleNestedGroupedSection,
+  cycleGroupedSectionColor,
   reorderGroupedSections,
   onAddRowToGroup,
   conditionalFormattingRules,
@@ -3288,13 +3371,28 @@ const GroupedTableView = memo(function GroupedTableView({
   onSortColumn,
   onOpenRowUpdates,
 }) {
+  function getSectionColor(colorId) {
+    return groupedSectionColorOptions.find((option) => option.id === colorId) || groupedSectionColorOptions[0]
+  }
+
   return (
     <div className="space-y-4">
-      {groupedRows.map((group) => (
-        <section key={group.label} className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-soft">
+      {groupedRows.map((group) => {
+        const sectionColor = getSectionColor(groupedSectionColors[group.label])
+
+        return (
+        <section
+          key={group.label}
+          className="overflow-visible rounded-xl border border-slate-200 shadow-soft"
+          style={{
+            backgroundColor: sectionColor.section,
+            borderColor: sectionColor.accent,
+            boxShadow: `inset 4px 0 0 ${sectionColor.accent}, 0 10px 28px rgba(15, 23, 42, 0.08)`,
+          }}
+        >
           <div
             className="sticky flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3"
-            style={{ top: APP_STICKY_TOP_OFFSET, zIndex: 12 }}
+            style={{ top: APP_STICKY_TOP_OFFSET, zIndex: 12, backgroundColor: sectionColor.header }}
           >
             <div
               draggable={groupedRows.length > 1}
@@ -3322,6 +3420,18 @@ const GroupedTableView = memo(function GroupedTableView({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => cycleGroupedSectionColor?.(groupByKey, group.label)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white transition hover:scale-105 hover:border-slate-400"
+                aria-label={`Change ${group.label} section color`}
+                title="Change section color"
+              >
+                <span
+                  className="h-4 w-4 rounded-full border border-white shadow-sm"
+                  style={{ backgroundColor: sectionColor.accent }}
+                />
+              </button>
               {!readOnly && (
                 <button
                   type="button"
@@ -3347,13 +3457,27 @@ const GroupedTableView = memo(function GroupedTableView({
             secondaryGroupByKey && group.children?.length ? (
               <div className="space-y-2.5 p-2.5">
                 {group.children.map((childGroup) => (
+                  (() => {
+                    const nestedLabel = getNestedGroupCollapseKey(group.label, childGroup.label)
+                    const childSectionColor = getSectionColor(nestedGroupedSectionColors[nestedLabel])
+
+                    return (
                   <section
                     key={`${group.label}-${childGroup.label}`}
-                    className="overflow-visible rounded-lg border border-slate-200/90 bg-slate-50/70"
+                    className="overflow-visible rounded-lg border"
+                    style={{
+                      backgroundColor: childSectionColor.nested,
+                      borderColor: childSectionColor.accent,
+                      boxShadow: `inset 3px 0 0 ${childSectionColor.accent}`,
+                    }}
                   >
                     <div
                       className="sticky flex items-center justify-between gap-3 border-b border-slate-200/80 bg-white/95 px-3 py-2 backdrop-blur-sm"
-                      style={{ top: APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT, zIndex: 13 }}
+                      style={{
+                        top: APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT,
+                        zIndex: 13,
+                        backgroundColor: childSectionColor.header,
+                      }}
                     >
                       <div className="min-w-0">
                         <p className={`truncate font-semibold text-slate-900 ${textSizeClasses.groupHeaderTitle}`}>
@@ -3365,10 +3489,22 @@ const GroupedTableView = memo(function GroupedTableView({
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => cycleGroupedSectionColor?.(nestedGroupFieldKey, nestedLabel)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-white transition hover:scale-105 hover:border-slate-400"
+                          aria-label={`Change ${childGroup.label} subsection color`}
+                          title="Change section color"
+                        >
+                          <span
+                            className="h-3.5 w-3.5 rounded-full border border-white shadow-sm"
+                            style={{ backgroundColor: childSectionColor.accent }}
+                          />
+                        </button>
                         {!readOnly && (
                           <button
                             type="button"
-                            onClick={() => onAddRowToGroup(group.label)}
+                            onClick={() => onAddRowToGroup(group.label, childGroup.label)}
                             className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
                           >
                             Add item
@@ -3443,6 +3579,8 @@ const GroupedTableView = memo(function GroupedTableView({
                       </div>
                     )}
                   </section>
+                    )
+                  })()
                 ))}
               </div>
             ) : (
@@ -3494,7 +3632,8 @@ const GroupedTableView = memo(function GroupedTableView({
             </div>
           )}
         </section>
-      ))}
+        )
+      })}
     </div>
   )
 })
@@ -4418,6 +4557,40 @@ function ReadOnlyCell({ column, value, row, textSize = 'medium', onOpenUpdates }
 }
 
 function RowUpdateDetailsModal({ rowName, updates, onClose }) {
+  const updateRows = updates.flatMap((entry) =>
+    (entry.changes || []).map((change) => ({
+      id: `${entry.id}-${change.columnKey}`,
+      editedAt: entry.editedAt,
+      user: entry.editedByName || entry.editedByEmail || 'Unknown user',
+      field: change.columnLabel,
+      previousValue: change.previousValue,
+      nextValue: change.nextValue,
+    })),
+  )
+
+  function downloadChangeLog() {
+    const header = ['Date', 'User', 'Field', 'Before', 'After']
+    const csvRows = updateRows.map((row) => [
+      formatDateTimeValue(row.editedAt),
+      row.user,
+      row.field,
+      formatColumnValue(row.previousValue, 'text'),
+      formatColumnValue(row.nextValue, 'text'),
+    ])
+    const csv = [header, ...csvRows].map((row) => row.map(toCsvCell).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const safeRowName = String(rowName || 'row').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+    link.href = url
+    link.download = `${safeRowName || 'row'}-change-log.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div
       className="fixed inset-0 z-[94] flex items-center justify-center bg-slate-950/35 p-4"
@@ -4428,60 +4601,83 @@ function RowUpdateDetailsModal({ rowName, updates, onClose }) {
       }}
     >
       <div
-        className="max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-2xl"
+        className="max-h-[calc(100vh-2rem)] w-full max-w-5xl overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Latest row updates</p>
             <h3 className="mt-2 text-xl font-semibold text-slate-900">{rowName}</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Review what changed on this row and when each edit happened.
+              Review every recorded cell change in a single audit table.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:bg-slate-50"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={downloadChangeLog}
+              disabled={updateRows.length === 0}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={14} />
+              Download CSV
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
-        <div className="mt-5 space-y-4">
-          {updates.length === 0 ? (
+        <div className="max-h-[calc(100vh-11rem)] overflow-y-auto p-5">
+          {updateRows.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
               No edits have been recorded for this row yet.
             </div>
           ) : (
-            updates.map((entry) => (
-              <article key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                <p className="text-sm font-semibold text-slate-900">{formatDateTimeValue(entry.editedAt)}</p>
-                <div className="mt-3 space-y-3">
-                  {(entry.changes || []).map((change) => (
-                    <div key={`${entry.id}-${change.columnKey}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        {change.columnLabel}
-                      </p>
-                      <div className="mt-2 grid gap-2 md:grid-cols-2">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Before</p>
-                          <p className="mt-1 text-sm text-slate-700">
-                            {formatColumnValue(change.previousValue, 'text')}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">After</p>
-                          <p className="mt-1 text-sm font-medium text-slate-900">
-                            {formatColumnValue(change.nextValue, 'text')}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            ))
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-sm font-semibold text-slate-900">Change log</p>
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                  {updateRows.length} changes
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full border-collapse text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="w-48 border-b border-slate-200 px-4 py-3">Date</th>
+                      <th className="w-44 border-b border-slate-200 px-4 py-3">User</th>
+                      <th className="w-48 border-b border-slate-200 px-4 py-3">Field</th>
+                      <th className="min-w-56 border-b border-slate-200 px-4 py-3">Before</th>
+                      <th className="min-w-56 border-b border-slate-200 px-4 py-3">After</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {updateRows.map((row) => (
+                      <tr key={row.id} className="align-top transition hover:bg-slate-50">
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDateTimeValue(row.editedAt)}</td>
+                        <td className="px-4 py-3 text-slate-600">{row.user}</td>
+                        <td className="px-4 py-3 font-medium text-slate-900">{row.field}</td>
+                        <td className="max-w-sm px-4 py-3 text-slate-600">
+                          <span className="block whitespace-pre-wrap break-words">
+                            {formatColumnValue(row.previousValue, 'text')}
+                          </span>
+                        </td>
+                        <td className="max-w-sm px-4 py-3 font-medium text-slate-900">
+                          <span className="block whitespace-pre-wrap break-words">
+                            {formatColumnValue(row.nextValue, 'text')}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       </div>
