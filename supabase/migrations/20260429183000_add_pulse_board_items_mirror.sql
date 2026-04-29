@@ -160,6 +160,31 @@ for select
 to authenticated
 using (
   workspace_id = public.pulse_current_workspace_id()
+  and (
+    exists (
+      select 1
+      from public.pulse_profiles as profile
+      where profile.id = auth.uid()
+        and profile.workspace_id = pulse_board_items.workspace_id
+        and profile.role = 'admin'
+        and profile.disabled is not true
+    )
+    or exists (
+      select 1
+      from public.pulse_boards as board
+      where board.id = pulse_board_items.board_id
+        and board.workspace_id = pulse_board_items.workspace_id
+        and (
+          board.owner_user_id = auth.uid()
+          or exists (
+            select 1
+            from jsonb_array_elements(coalesce(board.shared_with, '[]'::jsonb)) as share(value)
+            where (share.value ->> 'userId') = auth.uid()::text
+              and coalesce((share.value ->> 'accepted')::boolean, false)
+          )
+        )
+    )
+  )
 );
 
 drop policy if exists "Board item rows are maintained by board writes" on public.pulse_board_items;
@@ -201,3 +226,105 @@ left join public.pulse_profiles as updated_profile
   on updated_profile.id = item.updated_by;
 
 grant select on public.pulse_board_item_export to authenticated;
+
+create or replace view public.pulse_board_access_export
+with (security_invoker = true)
+as
+select
+  board.workspace_id,
+  board.id as board_id,
+  board.name as board_name,
+  board.slug as board_slug,
+  board.owner_user_id as user_id,
+  owner_profile.email as user_email,
+  owner_profile.name as user_name,
+  'owner'::text as permission,
+  true as accepted,
+  'owner'::text as access_source,
+  array[]::text[] as view_columns
+from public.pulse_boards as board
+left join public.pulse_profiles as owner_profile
+  on owner_profile.id = board.owner_user_id
+union all
+select
+  board.workspace_id,
+  board.id as board_id,
+  board.name as board_name,
+  board.slug as board_slug,
+  (share.value ->> 'userId')::uuid as user_id,
+  coalesce(share.value ->> 'email', shared_profile.email) as user_email,
+  shared_profile.name as user_name,
+  coalesce(share.value ->> 'permission', 'view') as permission,
+  coalesce((share.value ->> 'accepted')::boolean, false) as accepted,
+  'share'::text as access_source,
+  coalesce(
+    array(
+      select jsonb_array_elements_text(share.value -> 'viewColumns')
+      where jsonb_typeof(share.value -> 'viewColumns') = 'array'
+    ),
+    array[]::text[]
+  ) as view_columns
+from public.pulse_boards as board
+cross join lateral jsonb_array_elements(coalesce(board.shared_with, '[]'::jsonb)) as share(value)
+left join public.pulse_profiles as shared_profile
+  on shared_profile.id = (share.value ->> 'userId')::uuid;
+
+grant select on public.pulse_board_access_export to authenticated;
+
+create or replace function public.pulse_export_board_rows(target_board_id text)
+returns table (
+  workspace_id uuid,
+  board_id text,
+  board_name text,
+  board_slug text,
+  item_id text,
+  row_name text,
+  row_data jsonb,
+  position integer,
+  is_deleted boolean,
+  deleted_at timestamptz,
+  created_at timestamptz,
+  updated_at timestamptz,
+  created_by uuid,
+  created_by_email text,
+  created_by_name text,
+  updated_by uuid,
+  updated_by_email text,
+  updated_by_name text
+)
+language sql
+security invoker
+set search_path = ''
+as $$
+  select
+    export_row.workspace_id,
+    export_row.board_id,
+    export_row.board_name,
+    export_row.board_slug,
+    export_row.item_id,
+    export_row.row_name,
+    export_row.row_data,
+    export_row.position,
+    export_row.is_deleted,
+    export_row.deleted_at,
+    export_row.created_at,
+    export_row.updated_at,
+    export_row.created_by,
+    export_row.created_by_email,
+    export_row.created_by_name,
+    export_row.updated_by,
+    export_row.updated_by_email,
+    export_row.updated_by_name
+  from public.pulse_board_item_export as export_row
+  where export_row.board_id = target_board_id
+    and exists (
+      select 1
+      from public.pulse_board_access_export as access
+      where access.board_id = export_row.board_id
+        and access.user_id = auth.uid()
+        and access.accepted = true
+    )
+  order by export_row.position, export_row.updated_at, export_row.item_id;
+$$;
+
+grant execute on function public.pulse_export_board_rows(text) to authenticated;

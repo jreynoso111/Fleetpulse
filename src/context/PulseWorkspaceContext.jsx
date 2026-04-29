@@ -311,7 +311,8 @@ export function PulseWorkspaceProvider({ children }) {
     if (automationsError) throw automationsError
     if (notificationsError) throw notificationsError
     if (boardPreferencesError) throw boardPreferencesError
-    if (boardItemsError) throw boardItemsError
+    const shouldUseBoardItemRows = !boardItemsError
+    if (boardItemsError && boardItemsError.code !== 'PGRST205') throw boardItemsError
 
     const usersById = new Map((userRows || []).map((user) => [user.id, user]))
     const mappedBoardRows = (boardRows || []).map((board) => mapBoardRecord(board, usersById))
@@ -357,7 +358,7 @@ export function PulseWorkspaceProvider({ children }) {
         workspaceId: user.workspace_id,
       })),
     )
-    setAllBoards(applyBoardItemRows(mappedBoardRows, boardItemRows || []))
+    setAllBoards(shouldUseBoardItemRows ? applyBoardItemRows(mappedBoardRows, boardItemRows || []) : mappedBoardRows)
     setAutomations((automationRows || []).map(mapAutomationRecord))
     setNotifications(
       (notificationRows || [])
