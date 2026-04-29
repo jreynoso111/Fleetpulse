@@ -3,19 +3,39 @@ import { Component } from 'react'
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props)
-    this.state = { hasError: false }
+    this.state = { hasError: false, message: '' }
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: error?.message || '' }
   }
 
   componentDidCatch(error) {
     console.error('Pulse runtime error:', error)
   }
 
+  componentDidMount() {
+    window.addEventListener('hashchange', this.handleRouteChange)
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('hashchange', this.handleRouteChange)
+  }
+
+  handleRouteChange = () => {
+    if (this.state.hasError) {
+      this.setState({ hasError: false, message: '' })
+    }
+  }
+
   handleReload = () => {
     window.location.reload()
+  }
+
+  handleGoToBoards = () => {
+    this.setState({ hasError: false, message: '' }, () => {
+      window.location.hash = '#/app/boards'
+    })
   }
 
   render() {
@@ -27,13 +47,27 @@ class ErrorBoundary extends Component {
             <p className="mt-2 text-sm text-slate-500">
               The app hit an unexpected error. Please reload to continue.
             </p>
-            <button
-              type="button"
-              className="mt-4 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              onClick={this.handleReload}
-            >
-              Reload app
-            </button>
+            {this.state.message && (
+              <p className="mt-3 rounded-lg border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {this.state.message}
+              </p>
+            )}
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                onClick={this.handleGoToBoards}
+              >
+                Back to boards
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                onClick={this.handleReload}
+              >
+                Reload app
+              </button>
+            </div>
           </div>
         </div>
       )

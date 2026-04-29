@@ -680,6 +680,14 @@ export function PulseWorkspaceProvider({ children }) {
     return board
   }
 
+  function isSuspiciousRowDrop(previousItems = [], nextItems = []) {
+    const previousCount = Array.isArray(previousItems) ? previousItems.length : 0
+    const nextCount = Array.isArray(nextItems) ? nextItems.length : 0
+    const droppedCount = previousCount - nextCount
+
+    return previousCount >= 25 && droppedCount >= 20 && nextCount < previousCount * 0.5
+  }
+
   const evaluateNotificationAutomations = useCallback(
     async (candidateAutomations = automations, candidateBoards = boards) => {
       if (!currentUserId) return
@@ -1028,6 +1036,16 @@ export function PulseWorkspaceProvider({ children }) {
           ownerUserId: previousBoard.ownerUserId,
           ownerEmail: previousBoard.ownerEmail,
         }
+
+        if (
+          Object.prototype.hasOwnProperty.call(nextBoard || {}, 'items') &&
+          isSuspiciousRowDrop(previousBoard.items, boardToSave.items)
+        ) {
+          throw new Error(
+            'This update would remove most rows from the board at once. Pulse blocked the save to protect your data.',
+          )
+        }
+
         return updateBoardRecord(boardToSave)
       },
       async deleteBoard(boardId) {

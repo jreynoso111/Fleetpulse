@@ -231,6 +231,29 @@ function formatPhoneNumber(value) {
   return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`
 }
 
+function stringifyCellValue(value) {
+  if (value == null) return ''
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString()
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stringifyCellValue(entry))
+      .filter(Boolean)
+      .join(', ')
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
+function normalizeSearchValue(value) {
+  return stringifyCellValue(value).trim().toLowerCase()
+}
+
 function parseDateValue(value) {
   if (value == null || value === '') return null
 
@@ -238,7 +261,7 @@ function parseDateValue(value) {
     return Number.isNaN(value.getTime()) ? null : value
   }
 
-  const normalizedValue = typeof value === 'string' ? value.trim() : value
+  const normalizedValue = typeof value === 'string' ? value.trim() : stringifyCellValue(value)
 
   if (typeof normalizedValue === 'string' && DATE_ONLY_PATTERN.test(normalizedValue)) {
     const [year, month, day] = normalizedValue.split('-').map(Number)
@@ -262,7 +285,7 @@ function formatLocalDateKey(value) {
 function formatShortDate(value) {
   if (!value) return '—'
   const date = parseDateValue(value)
-  if (!date) return value
+  if (!date) return stringifyCellValue(value) || '—'
 
   return new Intl.DateTimeFormat('en-US', {
     month: '2-digit',
@@ -274,7 +297,7 @@ function formatShortDate(value) {
 function formatDateTimeValue(value) {
   if (!value) return '—'
   const date = parseDateValue(value)
-  if (!date) return value
+  if (!date) return stringifyCellValue(value) || '—'
 
   return new Intl.DateTimeFormat('en-US', {
     month: '2-digit',
@@ -364,7 +387,7 @@ function getColumnLinkUrl(column, value) {
 function stringifyComparableValue(value, type) {
   if (value == null) return ''
   if (type === 'boolean') return value ? 'true' : 'false'
-  return String(value).trim()
+  return stringifyCellValue(value).trim()
 }
 
 function getComparableValue(value, column) {
@@ -449,7 +472,7 @@ function formatColumnValue(value, type) {
   if (type === 'number') return value === '' ? '0' : value
   if (type === 'currency') return formatCurrencyValue(value)
   if (type === 'phone') return formatPhoneNumber(value) || '—'
-  return value || '—'
+  return stringifyCellValue(value) || '—'
 }
 
 function getTrackedColumns(columns = []) {
@@ -737,6 +760,7 @@ function BoardTable({
   initialConditionalFormattingRules = [],
   initialTextSize = 'medium',
   clearFiltersToken = 0,
+  externalSearchQuery = '',
   hasExternalFilters = false,
   onClearExternalFilters,
   onDataChange,
@@ -1026,10 +1050,10 @@ function BoardTable({
   const availableViewModes = useMemo(() => ['table', 'kanban', 'gantt'], [])
 
   const filteredRows = useMemo(() => {
-    if (filters.length === 0) return boardRows
+    const normalizedExternalQuery = normalizeSearchValue(externalSearchQuery)
 
-    return boardRows.filter((row) =>
-      filters.every((filter) => {
+    return boardRows.filter((row) => {
+      const matchesColumnFilters = filters.every((filter) => {
         const column = boardColumns.find((item) => item.key === filter.columnKey)
         if (!column) return true
 
@@ -1037,9 +1061,16 @@ function BoardTable({
 
         const { token } = getFilterOption(row[filter.columnKey], column.type)
         return filter.values.includes(token)
-      }),
-    )
-  }, [boardColumns, boardRows, filters])
+      })
+
+      if (!matchesColumnFilters) return false
+      if (!normalizedExternalQuery) return true
+
+      return boardColumns.some((column) =>
+        normalizeSearchValue(row?.[column.key]).includes(normalizedExternalQuery),
+      )
+    })
+  }, [boardColumns, boardRows, externalSearchQuery, filters])
   const sortedRows = useMemo(() => {
     if (!sortConfig?.columnKey || !sortConfig?.direction) return filteredRows
 
@@ -2290,6 +2321,14 @@ function BoardTable({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Rows</span>
+            <span>
+              {filteredRows.length === boardRows.length
+                ? boardRows.length
+                : `${filteredRows.length} of ${boardRows.length}`}
+            </span>
+          </div>
           {(filters.length > 0 || hasExternalFilters) && (
             <button
               type="button"
@@ -3842,7 +3881,7 @@ function GanttView({ rows, columns, ganttStartKey, ganttEndKey, ganttGroupByKey,
   const useVerticalLabels = timelineSegments.length > 12 || (scale === 'day' && timelineSegments.length > 8)
   const groupedItems = ganttGroupByKey
     ? itemsWithDates.reduce((accumulator, row) => {
-        const label = row.__ganttGroup || 'Uncategorized'
+        const label = stringifyCellValue(row.__ganttGroup) || 'Uncategorized'
         if (!accumulator[label]) accumulator[label] = []
         accumulator[label].push(row)
         return accumulator
@@ -3856,10 +3895,7 @@ function GanttView({ rows, columns, ganttStartKey, ganttEndKey, ganttGroupByKey,
   ]
 
   return (
-    <HorizontalScrollFrame
-      outerClassName="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-soft"
-      scrollerClassName="overflow-x-auto"
-    >
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-soft">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Gantt timeline</p>
@@ -3933,10 +3969,10 @@ function GanttView({ rows, columns, ganttStartKey, ganttEndKey, ganttGroupByKey,
                     className={readOnly ? '' : 'cursor-pointer'}
                     title={readOnly ? undefined : 'Double-click to edit'}
                   >
-                    <p className="text-sm font-medium text-slate-900">{row.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {row.owner || 'Unassigned'} · {row.__ganttStart} to {row.__ganttEnd}
-                    </p>
+                <p className="text-sm font-medium text-slate-900">{stringifyCellValue(row.name) || 'Untitled'}</p>
+                <p className="text-xs text-slate-500">
+                      {stringifyCellValue(row.owner) || 'Unassigned'} · {stringifyCellValue(row.__ganttStart) || 'No start'} to {stringifyCellValue(row.__ganttEnd) || 'No end'}
+                </p>
                   </div>
                   <div className="rounded-lg bg-slate-100 p-1.5">
                     <div
@@ -3962,7 +3998,7 @@ function GanttView({ rows, columns, ganttStartKey, ganttEndKey, ganttGroupByKey,
         ))}
         </div>
       </div>
-    </HorizontalScrollFrame>
+    </div>
   )
 }
 
@@ -4224,7 +4260,7 @@ function KanbanRowEditorModal({ row, columns, onClose, onDelete, onSave }) {
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">Edit item</p>
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{row.name || 'Kanban item'}</h2>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{stringifyCellValue(row.name) || 'Kanban item'}</h2>
             <p className="text-sm text-slate-600">
               Double-clicking a card opens the full row editor using the current board column order.
             </p>
@@ -4279,7 +4315,7 @@ function KanbanRowEditorModal({ row, columns, onClose, onDelete, onSave }) {
                   <input
                     type={column.type === 'date' ? 'date' : column.type === 'number' || column.type === 'currency' ? 'number' : 'text'}
                     step={column.type === 'currency' ? '0.01' : column.type === 'number' ? '1' : undefined}
-                    value={draft[column.key] ?? ''}
+                    value={stringifyCellValue(draft[column.key])}
                     onChange={(event) =>
                       setDraft((current) => ({
                         ...current,
@@ -4357,7 +4393,10 @@ function EditableCell({ column, value, rowId, textSizeClasses, onBlur, onChange 
       return formatDateInputValue(new Date())
     }
 
-    return value ?? getDefaultValue(column.type, column)
+    const nextValue = value ?? getDefaultValue(column.type, column)
+    if (column.type === 'boolean') return Boolean(nextValue)
+    if (column.type === 'number' || column.type === 'currency') return typeof nextValue === 'number' ? nextValue : Number(nextValue) || ''
+    return stringifyCellValue(nextValue)
   }
 
   const [draftValue, setDraftValue] = useState(getInitialDraftValue)
@@ -4473,6 +4512,7 @@ function EditableCell({ column, value, rowId, textSizeClasses, onBlur, onChange 
 }
 
 function ReadOnlyCell({ column, value, row, textSize = 'medium', onOpenUpdates }) {
+  const displayValue = formatColumnValue(value, column.type)
   const textClass = textSize === 'large' ? 'text-base' : textSize === 'small' ? 'text-xs' : 'text-sm'
   const wrappedTextClass = `block line-clamp-2 whitespace-normal break-words leading-snug ${textClass}`
   const emailTextClass = `block line-clamp-2 break-all leading-snug ${textClass}`
@@ -4489,10 +4529,10 @@ function ReadOnlyCell({ column, value, row, textSize = 'medium', onOpenUpdates }
         className={`inline-flex rounded-full px-2.5 py-1 font-medium ${
           textSize === 'large' ? 'text-sm' : 'text-xs'
         } ${
-          getStatusTone(value, column)
+          getStatusTone(displayValue, column)
         }`}
       >
-        {value}
+        {displayValue}
       </span>
     )
   }
@@ -4501,9 +4541,9 @@ function ReadOnlyCell({ column, value, row, textSize = 'medium', onOpenUpdates }
     return (
       <div className="flex items-center gap-2">
         <span className={`inline-flex items-center justify-center rounded-full bg-slate-200 font-semibold text-slate-700 ${ownerBadgeClass}`}>
-          {getInitials(value || 'NA')}
+          {getInitials(displayValue || 'NA')}
         </span>
-        <span className={`text-slate-700 ${wrappedTextClass}`}>{value || 'Unassigned'}</span>
+        <span className={`text-slate-700 ${wrappedTextClass}`}>{displayValue === '—' ? 'Unassigned' : displayValue}</span>
       </div>
     )
   }
@@ -4544,22 +4584,22 @@ function ReadOnlyCell({ column, value, row, textSize = 'medium', onOpenUpdates }
 
     return (
       <a
-        href={getColumnLinkUrl(column, value)}
+        href={getColumnLinkUrl(column, displayValue)}
         target="_blank"
         rel="noreferrer"
         className={`inline font-medium text-sky-700 underline decoration-sky-300 underline-offset-2 transition hover:text-sky-900 ${textClass}`}
         onClick={(event) => event.stopPropagation()}
       >
-        {value}
+        {displayValue}
       </a>
     )
   }
 
   if (isEmailColumn(column)) {
-    return <span className={`text-slate-700 ${emailTextClass}`}>{value || '—'}</span>
+    return <span className={`text-slate-700 ${emailTextClass}`}>{displayValue}</span>
   }
 
-  return <span className={`text-slate-700 ${wrappedTextClass}`}>{formatColumnValue(value, column.type)}</span>
+  return <span className={`text-slate-700 ${wrappedTextClass}`}>{displayValue}</span>
 }
 
 function RowUpdateDetailsModal({ rowName, updates, onClose }) {

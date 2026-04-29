@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowLeft, ArrowUpToLine, FilterX, PencilLine, Search, Share2, Trash2 } from 'lucide-react'
+import { ArrowDownToLine, ArrowLeft, ArrowUpToLine, FilterX, PencilLine, Search, Share2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import BoardTable from '../components/BoardTable'
@@ -67,10 +67,6 @@ function normalizeHeader(value) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '')
-}
-
-function normalizeSearchText(value) {
-  return String(value ?? '').trim().toLowerCase()
 }
 
 function createImportedRowId() {
@@ -168,7 +164,6 @@ function BoardWorkspacePage() {
   const {
     boards,
     currentUser,
-    deleteBoard,
     getBoardPermission,
     getBoardViewPreferences,
     removeBoardShare,
@@ -190,16 +185,6 @@ function BoardWorkspacePage() {
     () => (board ? resolveBoardColumns(board.columns, boardViewPreferences?.columnPreferences || {}, restrictedColumnKeys) : []),
     [board, boardViewPreferences, restrictedColumnKeys],
   )
-  const filteredBoardItems = useMemo(() => {
-    if (!board) return []
-
-    const normalizedQuery = normalizeSearchText(localTableSearchQuery)
-    if (!normalizedQuery) return board.items
-
-    return board.items.filter((item) =>
-      resolvedColumns.some((column) => normalizeSearchText(item[column.key]).includes(normalizedQuery)),
-    )
-  }, [board, localTableSearchQuery, resolvedColumns])
   const matchedUploadColumns = useMemo(() => {
     if (!board || uploadHeaders.length === 0) return []
 
@@ -263,13 +248,6 @@ function BoardWorkspacePage() {
     updateBoard(board.id, { ...board, columns: nextColumns, items: nextBoard.items }).catch((error) => {
       console.error('Failed to update board data.', error)
     })
-  }
-
-  async function handleDeleteBoard() {
-    const shouldDelete = window.confirm(`Delete "${board.name}" and remove its page?`)
-    if (!shouldDelete || !canManageSharing) return
-    await deleteBoard(board.id)
-    navigate('/app/boards', { replace: true })
   }
 
   async function handleShareSubmit(event) {
@@ -520,14 +498,6 @@ function BoardWorkspacePage() {
                 <PencilLine size={15} />
                 Edit page
               </button>
-              <button
-                type="button"
-                onClick={handleDeleteBoard}
-                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-              >
-                <Trash2 size={15} />
-                Delete page
-              </button>
             </>
           )}
         </div>
@@ -535,7 +505,7 @@ function BoardWorkspacePage() {
       <BoardTable
         key={board.id}
         columns={resolvedColumns}
-        rows={filteredBoardItems}
+        rows={board.items}
         loading={false}
         error={null}
         currentUser={currentUser}
@@ -559,6 +529,7 @@ function BoardWorkspacePage() {
         initialConditionalFormattingRules={boardViewPreferences?.conditionalFormattingRules || []}
         initialTextSize={boardViewPreferences?.textSize || 'medium'}
         clearFiltersToken={clearTableFiltersToken}
+        externalSearchQuery={localTableSearchQuery}
         hasExternalFilters={Boolean(localTableSearchQuery.trim())}
         onClearExternalFilters={() => setLocalTableSearchQuery('')}
         onDataChange={handleBoardChange}
