@@ -27,7 +27,7 @@ import {
 const PulseWorkspaceContext = createContext(null)
 const AUTOMATION_NOTIFICATION_TYPE = 'automation'
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-const BOARD_IMPORT_CHUNK_SIZE = 75
+const BOARD_IMPORT_CHUNK_SIZE = 25
 
 function parseAutomationDate(value) {
   if (value == null || value === '') return null
@@ -681,6 +681,20 @@ export function PulseWorkspaceProvider({ children }) {
     return board
   }
 
+  async function updateBoardColumnsRecord(board, nextColumns) {
+    const sanitizedColumns = nextColumns.map((column) => ({ ...column }))
+    const { error } = await supabase
+      .from('pulse_boards')
+      .update({ columns: sanitizedColumns })
+      .eq('id', board.id)
+
+    if (error) throw error
+
+    const nextBoard = { ...board, columns: sanitizedColumns }
+    setAllBoards((current) => current.map((entry) => (entry.id === board.id ? nextBoard : entry)))
+    return nextBoard
+  }
+
   function isSuspiciousRowDrop(previousItems = [], nextItems = []) {
     const previousCount = Array.isArray(previousItems) ? previousItems.length : 0
     const nextCount = Array.isArray(nextItems) ? nextItems.length : 0
@@ -1048,6 +1062,16 @@ export function PulseWorkspaceProvider({ children }) {
         }
 
         return updateBoardRecord(boardToSave)
+      },
+      async updateBoardColumns(boardId, nextColumns) {
+        const board = allBoards.find((entry) => entry.id === boardId)
+        if (!board) return null
+
+        if (getBoardPermission(board, currentUserId) !== 'owner') {
+          throw new Error('Only the board owner can update board columns.')
+        }
+
+        return updateBoardColumnsRecord(board, nextColumns)
       },
       async importBoardRows(boardId, rows, mergeKey) {
         const board = allBoards.find((entry) => entry.id === boardId)

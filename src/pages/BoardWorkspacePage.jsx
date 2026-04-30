@@ -171,6 +171,7 @@ function BoardWorkspacePage() {
     settings,
     shareBoard,
     updateBoard,
+    updateBoardColumns,
     updateBoardViewPreferences,
     workspaceUsers,
   } = usePulseWorkspace()
@@ -416,7 +417,7 @@ function BoardWorkspacePage() {
       const hasColumnUpdates = JSON.stringify(sanitizedColumns) !== JSON.stringify(board.columns)
 
       if (hasColumnUpdates) {
-        await updateBoard(board.id, { columns: sanitizedColumns })
+        await updateBoardColumns(board.id, sanitizedColumns)
       }
 
       if (rowsToImport.length > 0) {

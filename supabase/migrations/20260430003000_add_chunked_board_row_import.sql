@@ -158,16 +158,7 @@ begin
   end loop;
 
   update public.pulse_boards as board
-  set items = coalesce(
-        (
-          select jsonb_agg(item.row_data order by item.position, item.updated_at, item.item_id)
-          from public.pulse_board_items as item
-          where item.board_id = target_board_id
-            and item.is_deleted = false
-        ),
-        '[]'::jsonb
-      ),
-      updated_at = timezone('utc', now())
+  set updated_at = timezone('utc', now())
   where board.id = target_board_id;
 
   select count(*)::integer
