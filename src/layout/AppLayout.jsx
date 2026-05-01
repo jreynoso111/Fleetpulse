@@ -1,4 +1,4 @@
-import { Bell, LogOut, PanelLeftClose, PanelLeftOpen, Search, Trash2 } from 'lucide-react'
+import { Bell, Check, LogOut, PanelLeftClose, PanelLeftOpen, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
@@ -35,6 +35,8 @@ function AppLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [notificationActionError, setNotificationActionError] = useState('')
+  const [pendingNotificationAction, setPendingNotificationAction] = useState({ key: '', action: '' })
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearchResults, setShowSearchResults] = useState(false)
   const searchRef = useRef(null)
@@ -155,10 +157,20 @@ function AppLayout() {
     navigate('/', { replace: true })
   }
 
-  async function handleAcceptBoardShare(notificationId) {
-    await acceptBoardShare(notificationId)
-    setShowNotifications(false)
-    navigate('/app/boards')
+  async function handleAcceptBoardShare(group) {
+    setNotificationActionError('')
+    setPendingNotificationAction({ key: group.key, action: 'accept' })
+
+    try {
+      await acceptBoardShare(group.latest.id)
+      setShowNotifications(false)
+      navigate('/app/boards')
+    } catch (error) {
+      console.error('Failed to accept board share.', error)
+      setNotificationActionError('Unable to accept this board share. Refresh and try again.')
+    } finally {
+      setPendingNotificationAction({ key: '', action: '' })
+    }
   }
 
   async function handleNotificationGroupClick(group) {
@@ -176,9 +188,19 @@ function AppLayout() {
     await Promise.all(group.notifications.map((notification) => deleteNotification(notification.id)))
   }
 
-  async function handleRejectBoardShare(notificationId) {
-    await rejectBoardShare(notificationId)
-    setShowNotifications(false)
+  async function handleRejectBoardShare(group) {
+    setNotificationActionError('')
+    setPendingNotificationAction({ key: group.key, action: 'reject' })
+
+    try {
+      await rejectBoardShare(group.latest.id)
+      setShowNotifications(false)
+    } catch (error) {
+      console.error('Failed to reject board share.', error)
+      setNotificationActionError('Unable to reject this board share. Refresh and try again.')
+    } finally {
+      setPendingNotificationAction({ key: '', action: '' })
+    }
   }
 
   function handleSidebarToggle() {
@@ -282,8 +304,8 @@ function AppLayout() {
             <div className="flex min-w-0 items-center justify-end gap-2 sm:gap-3 lg:self-center">
               <div className="hidden min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-soft xl:flex">
                 <div
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                  style={{ backgroundColor: 'var(--pulse-accent)' }}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[color:var(--pulse-accent)] text-sm font-semibold shadow-soft"
+                  style={{ backgroundColor: 'var(--pulse-accent)', color: 'var(--pulse-on-accent)' }}
                 >
                   {String(currentUser?.name || currentUser?.email || 'P')
                     .trim()
@@ -298,25 +320,26 @@ function AppLayout() {
               <div className="relative">
               <button
                 type="button"
-                onClick={() => setShowNotifications((current) => !current)}
-                className="relative inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-soft transition hover:text-slate-700"
+                onClick={() => {
+                  setNotificationActionError('')
+                  setShowNotifications((current) => !current)
+                }}
+                className={`pulse-icon-button relative ${showNotifications ? 'pulse-icon-button-active' : ''}`}
                 aria-label="Notifications"
                 title="Notifications"
+                aria-pressed={showNotifications}
               >
                 <Bell size={18} />
                 {shellData.notificationsEnabled && unreadNotificationsCount > 0 && (
-                  <span
-                    className="absolute right-1.5 top-1.5 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
-                    style={{ backgroundColor: 'var(--pulse-accent)' }}
-                  >
+                  <span className="pulse-notification-badge absolute right-1 top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold">
                     {unreadNotificationsCount}
                   </span>
                 )}
               </button>
 
               {showNotifications && (
-                <div className="absolute right-0 top-12 z-30 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)] sm:w-[360px]">
-                  <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                <div className="absolute right-0 top-12 z-30 w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-[1.25rem] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)] sm:w-[380px]">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-900">Notifications</p>
                       <p className="text-xs text-slate-500">{unreadNotificationsCount} unread</p>
@@ -329,11 +352,16 @@ function AppLayout() {
                         })
                         setShowNotifications(false)
                       }}
-                      className="text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-900"
+                      className="pulse-link-action shrink-0"
                     >
                       Mark all read
                     </button>
                   </div>
+                  {notificationActionError && (
+                    <div className="border-b border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-700">
+                      {notificationActionError}
+                    </div>
+                  )}
 
                   <div className="max-h-[420px] overflow-y-auto">
                     {groupedNotifications.length === 0 ? (
@@ -341,18 +369,18 @@ function AppLayout() {
                     ) : (
                       groupedNotifications.map((group) => {
                         const notification = group.latest
+                        const isPendingAction = pendingNotificationAction.key === group.key
 
                         return (
                         <div
                           key={group.key}
-                          className="group flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50"
+                          className={`group flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 ${
+                            group.unreadCount > 0 ? 'pulse-notification-unread' : ''
+                          }`}
                         >
-                          <span
-                            className="mt-1.5 h-2.5 w-2.5 rounded-full"
-                            style={{
-                              backgroundColor: group.unreadCount === 0 ? 'var(--border-subtle)' : 'var(--pulse-accent)',
-                            }}
-                          />
+                          <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
+                            group.unreadCount === 0 ? 'bg-[color:var(--border-subtle)]' : 'bg-[color:var(--pulse-accent)]'
+                          }`} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
@@ -372,7 +400,7 @@ function AppLayout() {
                                 <button
                                   type="button"
                                   onClick={(event) => handleDeleteNotificationGroup(event, group)}
-                                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"
+                                  className="pulse-subtle-icon-button opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                                   aria-label="Delete notification"
                                   title="Delete notification"
                                 >
@@ -390,25 +418,28 @@ function AppLayout() {
                               <div className="mt-3 flex flex-wrap items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => handleAcceptBoardShare(notification.id)}
-                                  className="rounded-full px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90"
-                                  style={{ backgroundColor: 'var(--pulse-accent)' }}
+                                  onClick={() => handleAcceptBoardShare(group)}
+                                  className="pulse-primary-action"
+                                  disabled={isPendingAction}
                                 >
-                                  Accept
+                                  <Check size={14} />
+                                  {isPendingAction && pendingNotificationAction.action === 'accept' ? 'Working...' : 'Accept'}
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRejectBoardShare(notification.id)}
-                                  className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                                  onClick={() => handleRejectBoardShare(group)}
+                                  className="pulse-secondary-action"
+                                  disabled={isPendingAction}
                                 >
-                                  Reject
+                                  <X size={14} />
+                                  {isPendingAction && pendingNotificationAction.action === 'reject' ? 'Working...' : 'Reject'}
                                 </button>
                               </div>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => handleNotificationGroupClick(group)}
-                                className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-900"
+                                className="pulse-link-action mt-3"
                               >
                                 Open
                               </button>
@@ -426,7 +457,7 @@ function AppLayout() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-soft transition hover:text-slate-700"
+                className="pulse-icon-button"
                 aria-label="Log out"
               >
                 <LogOut size={18} />

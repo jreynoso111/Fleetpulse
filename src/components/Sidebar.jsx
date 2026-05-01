@@ -15,16 +15,16 @@ function SidebarContent({ collapsed, onNavigate }) {
         <Link
           to="/app/dashboard"
           onClick={onNavigate}
-          className="flex items-center gap-3 rounded-xl transition hover:opacity-85"
+          className="group flex items-center gap-3 rounded-xl transition hover:opacity-90"
           aria-label="Go to dashboard"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white">
+          <div className="pulse-logo-mark">
             P
           </div>
           {!collapsed && (
             <div>
               <p className="text-sm font-semibold text-slate-900">Pulse</p>
-              <p className="text-xs text-slate-500">Operations Platform</p>
+              <p className="text-xs font-medium text-slate-500">Operations Platform</p>
             </div>
           )}
         </Link>

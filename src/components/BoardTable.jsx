@@ -54,6 +54,14 @@ const groupedSectionColorOptions = [
   { id: 'rose', accent: '#fb7185', header: '#fff1f2', section: '#fffafa', nested: '#fff1f2' },
   { id: 'violet', accent: '#a78bfa', header: '#f5f3ff', section: '#fcfbff', nested: '#f5f3ff' },
 ]
+const SECTION_HEADER_TEXT_COLOR = '#0f172a'
+const SECTION_HEADER_META_COLOR = '#475569'
+const SECTION_HEADER_ICON_COLOR = '#64748b'
+const COLLAPSED_SECTION_BACKGROUND =
+  'color-mix(in srgb, var(--surface-muted) 88%, var(--pulse-accent-soft))'
+const COLLAPSED_SECTION_HEADER_BACKGROUND =
+  'color-mix(in srgb, var(--surface-muted) 76%, var(--pulse-accent-soft))'
+const COLLAPSED_SECTION_BORDER = 'color-mix(in srgb, var(--pulse-accent) 52%, var(--border-subtle))'
 const conditionalFontFamilyOptions = [
   { value: '', label: 'Default' },
   { value: 'font-sans', label: 'Sans' },
@@ -1338,10 +1346,9 @@ function BoardTable({
   useEffect(() => {
     if (!groupByKey) return
 
-    const validLabels = new Set(allGroupLabels)
     const currentOrder = groupedSectionOrderByField[groupByKey] || []
     const nextOrder = [
-      ...currentOrder.filter((label) => validLabels.has(label)),
+      ...currentOrder,
       ...allGroupLabels.filter((label) => !currentOrder.includes(label)),
     ]
 
@@ -1997,7 +2004,11 @@ function BoardTable({
         const currentOrder = current[groupByKey]?.length
           ? current[groupByKey]
           : groupedRows.map((group) => group.label)
-        const nextOrder = [...currentOrder]
+        const visibleLabels = groupedRows.map((group) => group.label)
+        const nextOrder = [
+          ...currentOrder,
+          ...visibleLabels.filter((label) => !currentOrder.includes(label)),
+        ]
         const fromIndex = nextOrder.indexOf(fromLabel)
         const toIndex = nextOrder.indexOf(toLabel)
         if (fromIndex === -1 || toIndex === -1) return current
@@ -3424,20 +3435,28 @@ const GroupedTableView = memo(function GroupedTableView({
     <div className="space-y-4">
       {groupedRows.map((group) => {
         const sectionColor = getSectionColor(groupedSectionColors[group.label])
+        const isGroupCollapsed = collapsedGroupLabels.includes(group.label)
+        const groupTitleColor = isGroupCollapsed ? 'var(--text-primary)' : SECTION_HEADER_TEXT_COLOR
+        const groupMetaColor = isGroupCollapsed ? 'var(--text-secondary)' : SECTION_HEADER_META_COLOR
+        const groupIconColor = isGroupCollapsed ? 'var(--text-secondary)' : SECTION_HEADER_ICON_COLOR
 
         return (
         <section
           key={group.label}
           className="overflow-visible rounded-xl border border-slate-200 shadow-soft"
           style={{
-            backgroundColor: sectionColor.section,
-            borderColor: sectionColor.accent,
+            backgroundColor: isGroupCollapsed ? COLLAPSED_SECTION_BACKGROUND : sectionColor.section,
+            borderColor: isGroupCollapsed ? COLLAPSED_SECTION_BORDER : sectionColor.accent,
             boxShadow: `inset 4px 0 0 ${sectionColor.accent}, 0 10px 28px rgba(15, 23, 42, 0.08)`,
           }}
         >
           <div
             className="sticky flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3"
-            style={{ top: APP_STICKY_TOP_OFFSET, zIndex: 12, backgroundColor: sectionColor.header }}
+            style={{
+              top: APP_STICKY_TOP_OFFSET,
+              zIndex: 12,
+              backgroundColor: isGroupCollapsed ? COLLAPSED_SECTION_HEADER_BACKGROUND : sectionColor.header,
+            }}
           >
             <div
               draggable={groupedRows.length > 1}
@@ -3455,13 +3474,20 @@ const GroupedTableView = memo(function GroupedTableView({
               title={groupedRows.length > 1 ? 'Drag to reorder sections' : undefined}
             >
               {groupedRows.length > 1 && (
-                <span className="mt-0.5 text-slate-400">
+                <span className="mt-0.5" style={{ color: groupIconColor }}>
                   <GripVertical size={16} />
                 </span>
               )}
               <div>
-              <p className={`font-semibold text-slate-900 ${textSizeClasses.groupHeaderTitle}`}>{group.label}</p>
-              <p className={`text-slate-500 ${textSizeClasses.groupHeaderMeta}`}>{group.items.length} items</p>
+              <p
+                className={`font-semibold ${textSizeClasses.groupHeaderTitle}`}
+                style={{ color: groupTitleColor }}
+              >
+                {group.label}
+              </p>
+              <p className={textSizeClasses.groupHeaderMeta} style={{ color: groupMetaColor }}>
+                {group.items.length} items
+              </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -3498,21 +3524,24 @@ const GroupedTableView = memo(function GroupedTableView({
             </div>
           </div>
 
-          {!collapsedGroupLabels.includes(group.label) ? (
+          {!isGroupCollapsed ? (
             secondaryGroupByKey && group.children?.length ? (
               <div className="space-y-2.5 p-2.5">
                 {group.children.map((childGroup) => (
                   (() => {
                     const nestedLabel = getNestedGroupCollapseKey(group.label, childGroup.label)
                     const childSectionColor = getSectionColor(nestedGroupedSectionColors[nestedLabel])
+                    const isChildCollapsed = collapsedNestedGroupLabels.includes(nestedLabel)
+                    const childTitleColor = isChildCollapsed ? 'var(--text-primary)' : SECTION_HEADER_TEXT_COLOR
+                    const childMetaColor = isChildCollapsed ? 'var(--text-secondary)' : SECTION_HEADER_META_COLOR
 
                     return (
                   <section
                     key={`${group.label}-${childGroup.label}`}
                     className="overflow-visible rounded-lg border"
                     style={{
-                      backgroundColor: childSectionColor.nested,
-                      borderColor: childSectionColor.accent,
+                      backgroundColor: isChildCollapsed ? COLLAPSED_SECTION_BACKGROUND : childSectionColor.nested,
+                      borderColor: isChildCollapsed ? COLLAPSED_SECTION_BORDER : childSectionColor.accent,
                       boxShadow: `inset 3px 0 0 ${childSectionColor.accent}`,
                     }}
                   >
@@ -3521,14 +3550,19 @@ const GroupedTableView = memo(function GroupedTableView({
                       style={{
                         top: APP_STICKY_TOP_OFFSET + GROUP_SECTION_HEADER_HEIGHT,
                         zIndex: 13,
-                        backgroundColor: childSectionColor.header,
+                        backgroundColor: isChildCollapsed
+                          ? COLLAPSED_SECTION_HEADER_BACKGROUND
+                          : childSectionColor.header,
                       }}
                     >
                       <div className="min-w-0">
-                        <p className={`truncate font-semibold text-slate-900 ${textSizeClasses.groupHeaderTitle}`}>
+                        <p
+                          className={`truncate font-semibold ${textSizeClasses.groupHeaderTitle}`}
+                          style={{ color: childTitleColor }}
+                        >
                           {childGroup.label}
                         </p>
-                        <p className={`text-slate-500 ${textSizeClasses.groupHeaderMeta}`}>
+                        <p className={textSizeClasses.groupHeaderMeta} style={{ color: childMetaColor }}>
                           {childGroup.items.length} items
                           {secondaryGroupByLabel ? ` · ${secondaryGroupByLabel}` : ''}
                         </p>
@@ -3576,7 +3610,7 @@ const GroupedTableView = memo(function GroupedTableView({
                         </button>
                       </div>
                     </div>
-                    {!collapsedNestedGroupLabels.includes(getNestedGroupCollapseKey(group.label, childGroup.label)) ? (
+                    {!isChildCollapsed ? (
                       <TableView
                         menuScope={`${menuScopePrefix}:${group.label}:${childGroup.label}`}
                         boardColumns={boardColumns}
@@ -3616,7 +3650,7 @@ const GroupedTableView = memo(function GroupedTableView({
                         stickyZIndex={14}
                       />
                     ) : (
-                      <div className="px-3 py-2 text-xs text-slate-500">
+                      <div className="px-3 py-2 text-xs" style={{ color: childMetaColor }}>
                         {childGroup.items.length} rows hidden in this subsection.
                         {getCurrencySummary(boardColumns, childGroup.items)
                           ? ` · ${getCurrencySummary(boardColumns, childGroup.items)}`
@@ -3669,7 +3703,7 @@ const GroupedTableView = memo(function GroupedTableView({
               />
             )
           ) : (
-            <div className="px-4 py-3 text-sm text-slate-500">
+            <div className="px-4 py-3 text-sm" style={{ color: groupMetaColor }}>
               {group.items.length} rows hidden in this section.
               {getCurrencySummary(boardColumns, group.items)
                 ? ` · ${getCurrencySummary(boardColumns, group.items)}`

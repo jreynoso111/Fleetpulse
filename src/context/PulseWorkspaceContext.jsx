@@ -252,6 +252,7 @@ export function PulseWorkspaceProvider({ children }) {
     document.documentElement.style.setProperty('--pulse-accent', theme.accent)
     document.documentElement.style.setProperty('--pulse-accent-soft', theme.accentSoft)
     document.documentElement.style.setProperty('--pulse-accent-contrast', theme.accentContrast)
+    document.documentElement.style.setProperty('--pulse-on-accent', theme.onAccent || theme.accentContrast)
     document.documentElement.style.setProperty('--app-bg', theme.appBg)
     document.documentElement.style.setProperty('--app-bg-soft', theme.appBgSoft)
     document.documentElement.style.setProperty('--surface', theme.surface)
@@ -443,10 +444,7 @@ export function PulseWorkspaceProvider({ children }) {
   const visibleAutomations = useMemo(
     () =>
       automations.filter(
-        (automation) =>
-          !automation.targetUserId ||
-          automation.targetUserId === currentUserId ||
-          automation.createdByUserId === currentUserId,
+        (automation) => automation.createdByUserId === currentUserId,
       ),
     [automations, currentUserId],
   )
@@ -713,7 +711,7 @@ export function PulseWorkspaceProvider({ children }) {
         (automation) =>
           automation.enabled &&
           automation.actionType === 'Notification' &&
-          automation.targetUserId === currentUserId &&
+          automation.createdByUserId === currentUserId &&
           shouldAutomationRunNow(automation, evaluationTimestamp),
       )
       if (enabledNotificationAutomations.length === 0) return
@@ -1129,17 +1127,21 @@ export function PulseWorkspaceProvider({ children }) {
       },
       async shareBoard(boardId, email, permission, viewColumns = []) {
         const normalizedEmail = email.trim().toLowerCase()
-        const targetUser = workspaceUsers.find((user) => user.email === normalizedEmail)
+        const targetUser = workspaceUsers.find((user) => user.email?.trim().toLowerCase() === normalizedEmail)
         const board = allBoards.find((entry) => entry.id === boardId)
         if (!board || !targetUser || !currentUser) return
         const normalizedViewColumns =
           permission === 'view' ? Array.from(new Set((viewColumns || []).filter(Boolean))) : []
 
-        const nextSharedWith = board.sharedWith.some((entry) => entry.userId === targetUser.id)
+        const isTargetShare = (entry) =>
+          entry.userId === targetUser.id || entry.email?.trim().toLowerCase() === normalizedEmail
+
+        const nextSharedWith = board.sharedWith.some(isTargetShare)
           ? board.sharedWith.map((entry) =>
-              entry.userId === targetUser.id
+              isTargetShare(entry)
                 ? {
                     ...entry,
+                    userId: targetUser.id,
                     email: targetUser.email,
                     permission,
                     accepted: entry.accepted === true,
@@ -1160,7 +1162,16 @@ export function PulseWorkspaceProvider({ children }) {
 
         await updateBoardRecord({ ...board, sharedWith: nextSharedWith })
 
-        await supabase.from('pulse_notifications').insert({
+        const sourcePreferences = stripBoardHistoryPreferences(boardViewPreferences[boardId] || {})
+        const { error: preferencesError } = await supabase.rpc('pulse_copy_board_view_preferences_for_share', {
+          target_board_id: boardId,
+          target_user_id: targetUser.id,
+          source_preferences: sourcePreferences,
+        })
+
+        if (preferencesError) throw preferencesError
+
+        const { error: notificationError } = await supabase.from('pulse_notifications').insert({
           user_id: targetUser.id,
           title: 'Board share request',
           description: `Accept ${board.name} to add it to your workspace with ${permission} access.`,
@@ -1174,18 +1185,23 @@ export function PulseWorkspaceProvider({ children }) {
             accepted: false,
           },
         })
+
+        if (notificationError) throw notificationError
       },
       async removeBoardShare(boardId, email) {
         const board = allBoards.find((entry) => entry.id === boardId)
-        const targetUser = workspaceUsers.find((user) => user.email === email)
+        const normalizedEmail = email.trim().toLowerCase()
+        const targetUser = workspaceUsers.find((user) => user.email?.trim().toLowerCase() === normalizedEmail)
         if (!board || !targetUser) return
 
         await updateBoardRecord({
           ...board,
-          sharedWith: board.sharedWith.filter((entry) => entry.userId !== targetUser.id),
+          sharedWith: board.sharedWith.filter(
+            (entry) => entry.userId !== targetUser.id && entry.email?.trim().toLowerCase() !== normalizedEmail,
+          ),
         })
 
-        await supabase.from('pulse_notifications').insert({
+        const { error: notificationError } = await supabase.from('pulse_notifications').insert({
           user_id: targetUser.id,
           title: 'Board access removed',
           description: 'A board was removed from your workspace access list.',
@@ -1193,6 +1209,8 @@ export function PulseWorkspaceProvider({ children }) {
           type: 'general',
           meta: { boardId },
         })
+
+        if (notificationError) throw notificationError
       },
       getBoardPermission(board) {
         return getBoardPermission(board, currentUserId)
@@ -1305,23 +1323,27 @@ export function PulseWorkspaceProvider({ children }) {
         const targetNotification = notifications.find((notification) => notification.id === notificationId)
         const targetBoardId = targetNotification?.meta?.boardId
         if (!targetBoardId || !currentUser) return null
+        const targetNotificationIds = notifications
+          .filter(
+            (notification) =>
+              notification.userId === currentUserId &&
+              notification.type === 'board-share-request' &&
+              notification.meta?.boardId === targetBoardId,
+          )
+          .map((notification) => notification.id)
+        const actionNotificationIds = targetNotificationIds.length ? targetNotificationIds : [notificationId]
 
         const board = allBoards.find((entry) => entry.id === targetBoardId)
-        if (!board) return null
-
-        const nextSharedWith = board.sharedWith.map((entry) =>
-          entry.userId === currentUser.id ? { ...entry, accepted: true } : entry,
-        )
-
-        const updatedBoard = await updateBoardRecord({
-          ...board,
-          sharedWith: nextSharedWith,
+        const { data: acceptedBoardRecord, error: acceptError } = await supabase.rpc('pulse_accept_board_share', {
+          target_board_id: targetBoardId,
         })
+
+        if (acceptError) throw acceptError
 
         const previousNotifications = clone(notifications)
         setNotifications((current) =>
           current.map((notification) =>
-            notification.id === notificationId
+            actionNotificationIds.includes(notification.id)
               ? {
                   ...notification,
                   read: true,
@@ -1348,7 +1370,7 @@ export function PulseWorkspaceProvider({ children }) {
                 accepted: true,
               },
             })
-            .eq('id', notificationId)
+            .in('id', actionNotificationIds)
             .eq('user_id', currentUserId)
 
           if (error) throw error
@@ -1357,31 +1379,40 @@ export function PulseWorkspaceProvider({ children }) {
           throw error
         }
 
-        return updatedBoard.slug
+        await loadWorkspaceData()
+
+        return acceptedBoardRecord?.slug || board?.slug || ''
       },
       async rejectBoardShare(notificationId) {
         const targetNotification = notifications.find((notification) => notification.id === notificationId)
         const targetBoardId = targetNotification?.meta?.boardId
         if (!targetBoardId || !currentUser) return
+        const targetNotificationIds = notifications
+          .filter(
+            (notification) =>
+              notification.userId === currentUserId &&
+              notification.type === 'board-share-request' &&
+              notification.meta?.boardId === targetBoardId,
+          )
+          .map((notification) => notification.id)
+        const actionNotificationIds = targetNotificationIds.length ? targetNotificationIds : [notificationId]
 
-        const board = allBoards.find((entry) => entry.id === targetBoardId)
-        if (board) {
-          await updateBoardRecord({
-            ...board,
-            sharedWith: board.sharedWith.filter((entry) => entry.userId !== currentUser.id),
-          })
-        }
+        const { error: rejectError } = await supabase.rpc('pulse_reject_board_share', {
+          target_board_id: targetBoardId,
+        })
+
+        if (rejectError) throw rejectError
 
         const previousNotifications = clone(notifications)
         setNotifications((current) =>
-          current.filter((notification) => notification.id !== notificationId),
+          current.filter((notification) => !actionNotificationIds.includes(notification.id)),
         )
 
         try {
           const { error } = await supabase
             .from('pulse_notifications')
             .delete()
-            .eq('id', notificationId)
+            .in('id', actionNotificationIds)
             .eq('user_id', currentUserId)
 
           if (error) throw error
@@ -1393,6 +1424,9 @@ export function PulseWorkspaceProvider({ children }) {
       async toggleAutomation(automationId) {
         const targetAutomation = automations.find((automation) => automation.id === automationId)
         if (!targetAutomation) return
+        if (targetAutomation.createdByUserId !== currentUserId) {
+          throw new Error('Only the automation owner can update this automation.')
+        }
 
         const previousAutomations = clone(automations)
         const nextAutomation = {
@@ -1425,7 +1459,6 @@ export function PulseWorkspaceProvider({ children }) {
         if (!currentUser) throw new Error('No active user session.')
 
         const scheduleTime = normalizeAutomationScheduleTime(payload?.config?.scheduleTime)
-
         const automation = {
           id: createStableId('auto'),
           name: String(payload?.name || '').trim(),
@@ -1469,6 +1502,9 @@ export function PulseWorkspaceProvider({ children }) {
 
         const targetAutomation = automations.find((automation) => automation.id === automationId)
         if (!targetAutomation) throw new Error('Automation not found.')
+        if (targetAutomation.createdByUserId !== currentUserId) {
+          throw new Error('Only the automation owner can update this automation.')
+        }
 
         const scheduleTime = normalizeAutomationScheduleTime(payload?.config?.scheduleTime)
         const nextAutomation = {
@@ -1477,6 +1513,7 @@ export function PulseWorkspaceProvider({ children }) {
           description: String(payload?.description || targetAutomation.description).trim(),
           triggerType: payload?.triggerType || targetAutomation.triggerType,
           enabled: payload?.enabled ?? targetAutomation.enabled,
+          targetUserId: targetAutomation.createdByUserId,
           nextRunAt:
             payload?.enabled === false || targetAutomation.enabled === false
               ? (payload?.enabled ?? targetAutomation.enabled)
@@ -1513,6 +1550,12 @@ export function PulseWorkspaceProvider({ children }) {
         }
       },
       async deleteAutomation(automationId) {
+        const targetAutomation = automations.find((automation) => automation.id === automationId)
+        if (!targetAutomation) return
+        if (targetAutomation.createdByUserId !== currentUserId) {
+          throw new Error('Only the automation owner can delete this automation.')
+        }
+
         const previousAutomations = clone(automations)
         setAutomations((current) => current.filter((automation) => automation.id !== automationId))
 

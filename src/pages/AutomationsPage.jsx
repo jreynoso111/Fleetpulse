@@ -107,7 +107,7 @@ function renderComparisonField({ column, value, onChange, label, idSuffix = 'val
   )
 }
 
-function AutomationModal({ boards, automation = null, onClose, onSave }) {
+function AutomationModal({ boards, currentUser, automation = null, onClose, onSave }) {
   const columnCatalog = useMemo(() => {
     const catalog = new Map()
 
@@ -237,6 +237,7 @@ function AutomationModal({ boards, automation = null, onClose, onSave }) {
           message: form.message.trim(),
           scheduleTime: form.scheduleTime,
         },
+        targetUserId: currentUser?.id,
       })
       onClose()
     } catch (nextError) {
@@ -450,7 +451,6 @@ function AutomationsPage() {
   const [editingAutomationId, setEditingAutomationId] = useState('')
 
   const editingAutomation = automations.find((automation) => automation.id === editingAutomationId) || null
-
   if (!currentUser) return null
 
   return (
@@ -476,6 +476,7 @@ function AutomationsPage() {
       {showCreateModal && (
         <AutomationModal
           boards={boards}
+          currentUser={currentUser}
           onClose={() => setShowCreateModal(false)}
           onSave={(payload) => createAutomation(payload)}
         />
@@ -485,6 +486,7 @@ function AutomationsPage() {
         <AutomationModal
           automation={editingAutomation}
           boards={boards}
+          currentUser={currentUser}
           onClose={() => setEditingAutomationId('')}
           onSave={(payload) => updateAutomation(editingAutomation.id, payload)}
         />
@@ -504,13 +506,22 @@ function AutomationsPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {automations.map((automation) => (
             <article key={automation.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
+              {(() => {
+                const canManageAutomation = automation.createdByUserId === currentUser.id
+
+                return (
+              <>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">{automation.name}</h2>
                   <p className="mt-1 text-sm text-slate-500">{automation.description}</p>
+                  <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Automation owner only
+                  </p>
                 </div>
                 <button
                   type="button"
+                  disabled={!canManageAutomation}
                   onClick={() =>
                     toggleAutomation(automation.id).catch((error) => {
                       console.error('Failed to update automation.', error)
@@ -518,7 +529,7 @@ function AutomationsPage() {
                   }
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                     automation.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   {automation.enabled ? 'Enabled' : 'Paused'}
                 </button>
@@ -552,30 +563,39 @@ function AutomationsPage() {
               </dl>
 
               <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingAutomationId(automation.id)}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                >
-                  <PencilLine size={14} />
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const confirmed = window.confirm(`Delete automation "${automation.name}"?`)
-                    if (!confirmed) return
+                {canManageAutomation ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setEditingAutomationId(automation.id)}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                    >
+                      <PencilLine size={14} />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const confirmed = window.confirm(`Delete automation "${automation.name}"?`)
+                        if (!confirmed) return
 
-                    deleteAutomation(automation.id).catch((error) => {
-                      console.error('Failed to delete automation.', error)
-                    })
-                  }}
-                  className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </button>
+                        deleteAutomation(automation.id).catch((error) => {
+                          console.error('Failed to delete automation.', error)
+                        })
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                    >
+                      <Trash2 size={14} />
+                      Delete
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Owner only</span>
+                )}
               </div>
+              </>
+                )
+              })()}
             </article>
           ))}
         </div>

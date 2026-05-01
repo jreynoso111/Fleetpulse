@@ -319,6 +319,8 @@ export function mapAutomationRecord(record) {
 }
 
 export function automationToRecord(automation, workspaceId, currentUserId) {
+  const hasTargetUser = Object.prototype.hasOwnProperty.call(automation, 'targetUserId')
+
   return {
     id: automation.id,
     workspace_id: workspaceId,
@@ -330,7 +332,7 @@ export function automationToRecord(automation, workspaceId, currentUserId) {
     last_run_at: automation.lastRunAt || null,
     next_run_at: automation.nextRunAt || null,
     configuration: automation.config || {},
-    target_user_id: automation.targetUserId || currentUserId,
+    target_user_id: hasTargetUser ? automation.targetUserId || null : currentUserId,
     created_by_user_id: automation.createdByUserId || currentUserId,
   }
 }
